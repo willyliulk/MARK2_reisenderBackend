@@ -176,6 +176,11 @@ class MotorManager_v2():
     class ManageState(Enum):
         STOP = 0
         RUNNING = 1
+        
+    class MotorState(Enum):
+        IDEL = 0
+        RUNNING = 1
+        ERROR = 2
     
     @dataclass
     class MotorData:
@@ -192,7 +197,8 @@ class MotorManager_v2():
         self.recv_task = None
         self.manageState = self.ManageState.STOP
         self.motorData = self.MotorData()
-        
+        self.motorState = self.MotorState.IDEL
+        self.motorProximity = [False, False]
         
         
     async def startManger(self):
@@ -243,7 +249,21 @@ class MotorManager_v2():
     def get_motorData(self):
         return self.motorData
     
+    def get_motorState(self):
+        return self.motorState
+        
+    def get_proximitys(self):
+        fakeProximity = [False, False]
+        return fakeProximity
+        # return self.motorProximity
     
+    def is_home(self):
+        '''return True if motor is at home position'''
+        if abs(self.motorData.pos - self.homePos) < 1:
+            return True
+        else:
+            return False
+
     def pub_send_helper(self, cmd:str):
         self.pub.send(cmd.encode())
         
@@ -254,6 +274,11 @@ class MotorManager_v2():
                 callback(content)
             else:
                 logger.debug("recv msg:", content)
+    
+    def __cb_prosimity(self, content:str):
+        '''content = 00, 01, 10 , 11'''
+        self.motorProximity[0] = content[0]==1
+        self.motorProximity[1] = content[1]==1
         
     async def msg_recv_job(self):
         logger.debug("msg_recv_job start")
@@ -272,6 +297,7 @@ class MotorManager_v2():
                                                 lambda x: setattr(self.motorData, 'pos', float(x)))
                         self.sub_recv_helper(msg, f'motor|{self.id}|speed',
                                                     lambda x: setattr(self.motorData, 'vel', float(x)))
+                        self.sub_recv_helper(msg, f'motor|{self.id}|proximity',self.__cb_prosimity)
                 
                 except asyncio.TimeoutError:
                     continue  # 超時後繼續檢查停止條件

@@ -7,7 +7,7 @@
     <img id="imageDisplay" />
 
     <script>
-        const ws = new WebSocket('ws://localhost:8800/v2/ws/cam/0'); // Replace with your WebSocket server URL
+        const ws = new WebSocket('ws://localhost:8800/v2/ws/cam/1'); // Replace with your WebSocket server URL
         const imageElement = document.getElementById('imageDisplay');
 
         ws.onmessage = function(event) {

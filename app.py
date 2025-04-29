@@ -122,7 +122,12 @@ async def lifespan(app: FastAPI):
 
 
 # ----------- FastAPI App -----------
-app = FastAPI(lifespan=lifespan, title="ReisenderTECH MARK I", description="MARK I API 包含馬達控制與影片串流")
+app = FastAPI(lifespan=lifespan, title="ReisenderTECH MARK I",
+              description='''MARK I API 包含馬達控制與影片串流 \n
+              websocket端點有\n
+              馬達資訊：/v2/ws/motor/{id}/data\n
+              影像串流：/v2/ws/cam/{id}\n
+              按鈕狀態：/v2/ws/mechine''')
 app.mount("/js"     , StaticFiles(directory="./html/js"))
 app.mount("/css"    , StaticFiles(directory="./html/css"))
 app.mount("/numPic" , StaticFiles(directory="./html/numPic"))
@@ -507,37 +512,52 @@ def post_correctLabel(correctLabel:str):
 
 
 #region MARK2
-btnshot = 0
+
+@app.get('/v2/mechine/emergency')
+def v2_get_motor_data(id:int, resources: ResourceManager = Depends(get_resources)):
+
+    return {'state':'ok'}
+
+
 @app.get('/v2/motor/{id}/data')
 def v2_get_motor_data(id:int, resources: ResourceManager = Depends(get_resources)):
     if id >= len(resources.motorV2_list):
         return JSONResponse(status_code=404, content={"error": "Motor not found"})
-    global btnshot
     data = resources.motorV2_list[id].get_motorData()
-    btnshot = 0 if btnshot == 1 else 1
-    return {'id':id,
-            'pos':data.pos,
-            'vel':data.vel,
-            'btnShot':btnshot,
-            'stop':0}
+    state = resources.motorV2_list[id].get_motorState()
+    proximitys = resources.motorV2_list[id].get_proximitys()
+    is_home = resources.motorV2_list[id].is_home()
+    return {
+        'id':id,
+        'pos':data.pos,
+        'vel':data.vel,
+        'state':state,
+        'proximitys':proximitys,
+        'is_home':is_home,
+    }
 
 @app.websocket('/v2/ws/motor/{id}/data')
 async def v2_ws_motor_data(websocket:WebSocket ,id:int):
+    await websocket.accept()
+    resources: ResourceManager = websocket.app.state.resources
+
     if id >= len(resources.motorV2_list):
         return JSONResponse(status_code=404, content={"error": "Motor not found"})
-    global btnshot
-    await websocket.accept()
-    # 從 websocket.state 獲取 resources
-    resources = websocket.app.state.resources
 
     try:
         while True:
+            # data = resources.motorV2_list[id].get_motorData()
             data = resources.motorV2_list[id].get_motorData()
-            motorDataJson = {
+            state = resources.motorV2_list[id].get_motorState()
+            proximitys = resources.motorV2_list[id].get_proximitys()
+            is_home = resources.motorV2_list[id].is_home()
+            motorDataJson =  {
                 'id':id,
                 'pos':data.pos,
-                'btnShot':btnshot,
-                'stop':0
+                'vel':data.vel,
+                'state':state,
+                'proximitys':proximitys,
+                'is_home':is_home,
             }
             await websocket.send_json(motorDataJson)
             await asyncio.sleep(0.1)
@@ -547,7 +567,7 @@ async def v2_ws_motor_data(websocket:WebSocket ,id:int):
 @app.websocket('/v2/ws/cam/{id}')
 async def v2_ws_cam(websocket:WebSocket ,id:int):
     await websocket.accept()
-    resources = websocket.app.state.resources
+    resources :ResourceManager = websocket.app.state.resources
 
     try:
         while True:
@@ -561,9 +581,48 @@ async def v2_ws_cam(websocket:WebSocket ,id:int):
                 continue
             jpegb64 = base64.b64encode(buffer).decode('utf-8')
             await websocket.send_text(jpegb64)
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.01)
     except WebSocketDisconnect:
         logger.info(f"WebSocket connection closed for cam {id}")
+
+
+def get_mechien_state(resources: ResourceManager):
+    # IDEL: 如果所有軸都處於正常狀態
+    # SHOTTING : 拍照中返回
+    # AI_PROC : AI處理中
+    # ERROR : 如果有軸處於異常狀態
+    # 如果有軸處於異常狀態，則返回 ERROR
+    return 'IDLE' # fake foro debug
+    for motor in resources.motorV2_list:
+        if motor.get_motorState() == 'error':
+            return 'ERROR'
+
+def get_mechint_btn(resources: ResourceManager) -> list[str]:
+    return []
+    
+@app.websocket('/v2/ws/mechine')
+async def v2_ws_mechine(websocket:WebSocket):
+    await websocket.accept()
+    # 從 websocket.state 獲取 resources
+    resources :ResourceManager = websocket.app.state.resources
+
+    try:
+        while True:
+            # data = resources.motorV2_list[id].get_motorData()
+            staet = get_mechien_state(resources)
+            btn_on = get_mechint_btn(resources)
+            mechineDataJson = {
+                'emergency':False,
+                'reason':'random Placeholder',
+                'state':staet,
+                'colorLight':'y',
+                'btn_on':btn_on
+            }
+            await websocket.send_json(mechineDataJson)
+            await asyncio.sleep(0.1)
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket connection closed for mechine")
+
 
 @app.post('/v2/motor/{id}/move/stop')
 def v2_motor_move_stop(id:int,
@@ -584,6 +643,16 @@ def v2_motor_move_abs(id:int, moveAbsReq:MotorMoveAbsReq,
     motor.goAbsPos(pos)
     return {"status": "OK"}
 
+@app.post('/v2/motor/{id}/move/home')
+def v2_motor_move_abs(id:int, moveAbsReq:MotorMoveAbsReq,
+                   resources: ResourceManager = Depends(get_resources)):
+    if id >= len(resources.motorV2_list):
+        return JSONResponse(status_code=404, content={"error": "Motor not found"})
+    return {"status": "OK"}
+    motor = resources.motorV2_list[id]
+    pos = moveAbsReq.pos
+    motor.goAbsPos(pos)
+
 @app.post('/v2/motor/{id}/move/inc')
 def v2_motor_move_inc(id:int, moveIncReq:MotorMoveIncReq,
                    resources: ResourceManager = Depends(get_resources)):
@@ -595,11 +664,11 @@ def v2_motor_move_inc(id:int, moveIncReq:MotorMoveIncReq,
 async def wait_motor_move_to_pos(motor:MotorManager_v2, motor_id: int, target_pos: float):
     start = time.time()
     while True:
-        motor_pos = motor.pos
-        motor_stop = motor.getMotorButton()[0]
-        
+        motor_pos = motor.get_motorData().pos
+        motor_proximity = motor.motorProximity
+
         # 抵達目標點或被停止
-        if abs(motor_pos - target_pos) <= 5 or motor_stop == 1:
+        if abs(motor_pos - target_pos) <= 5:
             break
         
         # 處理執行超時
@@ -765,4 +834,4 @@ if __name__ == "__main__":
     logger.add(sys.stderr, level="INFO")
 
     print('hello')
-    uvicorn.run(app='app:app', host="0.0.0.0", port=8800)
+    uvicorn.run(app='app:app', host="0.0.0.0", port=8800, reload=True)
