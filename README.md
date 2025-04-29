@@ -7,6 +7,20 @@
 uv sync
 ```
 
+執行程式請使用以下指令\
+開啟一個終端執行，啟動模擬器
+```lang=bash
+cd MARK2_reisenderBackend
+source .venv/bin/activate # linux
+uv run .\mechineSimulator\testPlace3.py 
+```
+開啟第二個終端執行，啟動後端API伺服器，會運行在8800端口上
+```lang=bash
+cd MARK2_reisenderBackend
+source .venv/bin/activate # linux
+uv run .\mechineSimulator\testPlace3.py 
+```
+
 ## websocket 設計
 目前提供三個webcoket端點 \
 簡單說明一下資料表示法：\
