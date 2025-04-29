@@ -1,0 +1,4 @@
+.venv
+.linuxenv
+__pycache__
+motorImage

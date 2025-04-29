@@ -1,0 +1,21 @@
+[Unit]
+Description=Delayed Startup for Reisneder Backend
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStartPre=/bin/sleep 30
+WorkingDirectory=/home/ubuntu/Desktop/pythonBackend
+ExecStart=/home/ubuntu/Desktop/pythonBackend/run.sh
+Restart=on-failure
+
+# 日誌輪轉配置
+StandardOutput=append:/var/log/python-backend.log
+StandardError=append:/var/log/python-backend.log
+LogsDirectory=python-backend
+LogsDirectoryMode=0755
+
+
+[Install]
+WantedBy=multi-user.target

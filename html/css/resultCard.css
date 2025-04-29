@@ -1,0 +1,86 @@
+#resultCardContainer {
+    border: solid 2px #000000;
+    overflow-y: auto; /* 垂直捲動條會自動出現 */
+    overflow-x: hidden; /* 隱藏水平捲動條，如果不需要水平捲動的話 */
+    height: 500px;
+    width: 420px;
+
+}
+
+.pageDiv {
+    height: 380px;
+    width: 98%;
+    margin: 2px;
+    margin-right: 5px;
+    border: solid 2px #da6bc7;
+}
+
+.itemTitle {
+    color: #000000;
+    margin: 3% 3%;
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+.itemDetail.content {
+    /* border: solid 2px #4ddd63; */
+    display: grid;
+    /* grid-template-columns: repeat(2, 1fr); */
+    grid-template-columns: 1fr 4fr;
+    gap: 5px;
+    
+    margin: 0px 3%;
+}
+
+.itemDetail.content p{
+    /* border: solid 2px #5656b1; */
+    margin: 0px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: medium;
+}
+
+.itemDetail.title{
+    text-align: left;
+    color: #787877;
+}
+.itemDetail.field{
+    text-align: right;
+    color: #000000;
+}
+
+.itemDetail.content div{
+    display: flex;
+    justify-content: flex-end;
+}
+.itemDetail.field p{
+    background: #ccf5eb;
+    color: #00a37c;
+    border-radius: 50%/100%;
+    text-align: center;
+    align-items: end;
+    width: 50px;
+}
+
+.pageDiv .splide__slide {
+    display: flex;
+    max-height: 200px;
+    height: auto;
+    width: auto;
+    text-align: center;
+    justify-content: space-evenly;
+    align-items: center;
+    object-fit: contain; /* 圖片覆蓋容器並保持長寬比 */
+    margin-top: 5px;
+}
+
+.itemDetail.field.Medium p {
+    background: #dae094;
+    color: #99a011;
+    width: 80px;
+    border-radius: 20% / 100%;
+}
+
+.itemDetail.field.Low p {
+    background: #e1a2a0;
+    color: #c33721;
+
+}

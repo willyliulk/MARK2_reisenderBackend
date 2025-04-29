@@ -1,0 +1,86 @@
+服務設定檔路徑
+/etc/systemd/system/reisender-backend.service
+
+監看systemd服務的輸出是一個重要的故障排除和監控步驟。有幾種方法可以做到這一點。
+
+
+
+1. 使用 `journalctl` 命令：
+
+   這是查看systemd服務日誌的主要方法。
+
+   a. 查看特定服務的所有日誌：
+   ```
+   journalctl -u reisender-backend.service
+   ```
+
+   b. 實時查看日誌（類似於 `tail -f`）：
+   ```
+   journalctl -u reisender-backend.service -f
+   ```
+
+   c. 查看今天的日誌：
+   ```
+   journalctl -u reisender-backend.service --since today
+   ```
+
+2. 使用 `systemctl status` 命令：
+
+   這會顯示服務的當前狀態和最近的幾行日誌：
+   ```
+   systemctl status reisender-backend.service
+   ```
+
+3. 直接檢查服務的標準輸出和錯誤輸出：
+
+   如果您在服務文件中沒有特別指定日誌輸出位置，systemd會自動捕獲標準輸出和錯誤輸出。這些可以通過 `journalctl` 查看。
+
+4. 配置服務以輸出到特定文件：
+
+   如果您希望將輸出寫入特定文件，可以修改服務文件。在 `[Service]` 部分添加以下行：
+
+   ```
+   StandardOutput=append:/path/to/output.log
+   StandardError=append:/path/to/error.log
+   ```
+
+   然後重新加載systemd配置並重啟服務：
+   ```
+   sudo systemctl daemon-reload
+   sudo systemctl restart reisender-backend.service
+   ```
+
+   這樣，您就可以直接查看這些日誌文件了。
+
+5. 使用 `systemd-cat` 命令：
+
+   如果您想在腳本中添加更多的日誌信息，可以在 `run.sh` 中使用 `systemd-cat`：
+
+   ```bash
+   #!/bin/bash
+   systemd-cat echo "Python backend starting"
+   # 其他命令...
+   ```
+
+   這會將消息發送到systemd日誌中。
+
+重要提示：
+- 使用 `journalctl` 或 `systemctl status` 時，可能需要 `sudo` 權限，特別是如果服務以 root 用戶運行。
+- 如果您的服務產生大量輸出，請考慮配置日誌輪轉以防止磁盤空間耗盡。
+
+
+
+查看鏡頭
+```bash
+v4l2-ctl --list-devices
+v4l2-ctl --device=/dev/video0 --list-formats-ext
+v4l2-ctl --device=/dev/video0 --all
+
+```
+
+監聽USB com設備
+```bash
+udevadm monitor
+interceptty -s '115200' /dev/ttyUSB3 /tmp/ttyV0
+interceptty -s '500000' /dev/ttyUSB3 /tmp/ttyV0
+```

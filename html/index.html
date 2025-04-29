@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controller</title>
+    <script src="js/splide.min.js"></script>
+    <link rel="stylesheet" href="css/splide.min.css">
+
+    <script src="js/myWsClient.js"></script>
+    <script src="/js/chart.umd.min.js"></script>
+    <script src="js/Sortable.min.js"></script>
+
+    <link rel="stylesheet" href="css/index.css">
+    <link rel="stylesheet" href="css/resultCard.css">
+
+</head>
+
+<body>
+
+    <div class="mainBody">
+
+
+        <div class="motorContainer">
+            <h3 class="motor-item title">馬達控制</h3>
+            <button class="motorSTOP" onclick="click_motorStop()">馬達停止</button>
+
+            <div class="motorPosVel">
+                <div class="motorDataBlock">
+                    <h4 class="motor-item">馬達位置</h4>
+                    <p class="motor-item" id="motorPosField">40000</p>
+                    <!-- <canvas id="plotPos" class="motorplot grid-item" width="400" height="200"></canvas> -->
+                </div>
+                <div class="motorDataBlock">
+                    <h4 class="motor-item">馬達速度</h4>
+                    <p class="motor-item" id="motorVelField">0</p>
+                    <!-- <canvas id="plotVel" class="motorplot grid-item" width="400" height="200"></canvas> -->
+                </div>
+            </div>
+            
+            <div class="motorMove">
+                <div class="motorMoveInc">
+                    <h4>相對位置移動</h4>
+                    <div class="motorMoveCon">
+                        <button onclick="click_motorIncMinus();">L</button>
+                        <input value="10000" id="motorMoveIncField">
+                        <button onclick="click_motorIncPlus()">R</button>
+                    </div>
+                </div>
+                <div class="motorMoveAbs">
+                    <h4>絕對位置移動</h4>
+                    <div class="motorMoveCon">
+                        <input value="-1000" id="motorMoveAbsField">
+                        <button onclick="click_motorAbs()">GO</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="motorSP">
+                <div class="motorSPtitle">
+                    <h4 class="">定位點編輯</h4>
+                    <button onclick="click_motorMoveSP()">依次移動</button>
+                </div>
+                
+                <ol class="motorSPlist" id="motorSPlist">
+                    <!-- here will be <li> load by index.js -->
+                </ol>
+
+                <div class="motorSPctrl">
+                    <button onclick="click_motorSP_add()">add set point</button>
+                </div>
+            </div>
+                
+        </div>
+
+        <div class="camContainer">
+            <h3>相機檢視</h3>
+
+            <div class="camViewBox">
+                <div class="camView">
+                    <h3>相機 1</h3>
+                    <img id="cam1_Img" src="pics/placeholder.jpg" alt="">
+                </div>
+                <div class="camView">
+                    <h3>相機 2</h3>
+                    <img id="cam2_Img" src="pics/placeholder.jpg" alt="">
+                </div>
+                <!-- <div class="camView">
+                    <h3>相機 3</h3>
+                    <img id="cam3_Img" src="pics/placeholder.jpg" alt="">
+                </div>
+                <div class="camView">
+                    <h3>相機 4</h3>
+                    <img id="cam4_Img" src="pics/placeholder.jpg" alt="">
+                </div> -->
+            </div>
+            
+            <button class="camShot" onclick="click_camShot()">拍攝定位點相片</button>
+            
+            <div class="camShowSlide">
+                <section id="cam1_slide" class="splide" aria-label="Splide1 Basic HTML Example">
+                    <div class="splide__track">
+                        <ul id="cam1_slideBox" class="splide__list">
+                            <li class="splide__slide"><img src="/numPic/1.JPG"></li>
+                            <li class="splide__slide"><img src="/numPic/2.JPG"></li>
+                            <li class="splide__slide"><img src="/numPic/3.JPG"></li>
+                        </ul>
+                    </div>
+                </section>
+                <section id="cam2_slide" class="splide" aria-label="Splide2 Basic HTML Example">
+                    <div class="splide__track">
+                        <ul id="cam2_slideBox" class="splide__list">
+                            <li class="splide__slide"><img src="/numPic/4.JPG"></li>
+                            <li class="splide__slide"><img src="/numPic/5.JPG"></li>
+                            <li class="splide__slide"><img src="/numPic/6.JPG"></li>
+                        </ul>
+                    </div>
+                </section>
+                <!-- <section id="cam3_slide" class="splide" aria-label="Splide2 Basic HTML Example">
+                    <div class="splide__track">
+                        <ul id="cam3_slideBox" class="splide__list">
+                            <li class="splide__slide"><img src="/numPic/1.JPG"></li>
+                            <li class="splide__slide"><img src="/numPic/3.JPG"></li>
+                            <li class="splide__slide"><img src="/numPic/5.JPG"></li>
+                        </ul>
+                    </div>
+                </section>
+                <section id="cam4_slide" class="splide" aria-label="Splide2 Basic HTML Example">
+                    <div class="splide__track">
+                        <ul id="cam4_slideBox" class="splide__list">
+                            <li class="splide__slide"><img src="/numPic/2.JPG"></li>
+                            <li class="splide__slide"><img src="/numPic/4.JPG"></li>
+                            <li class="splide__slide"><img src="/numPic/6.JPG"></li>
+                        </ul>
+                    </div>
+                </section> -->
+
+                <!-- <script>
+                </script> -->
+                </div>
+        </div>
+
+        <div class="camAndShotContainer">
+            <!-- <h3>相機檢視與辨識</h3> -->
+            <button id="camShotAndPost" class="camShotAndPost" onclick="click_camShotAndPost()">拍攝並辨識</button>
+
+        </div>
+
+        <div class="reusltContainer">
+            <h3 class="title">AI識別結果</h3>
+            <button class="resultButton" onclick="click_resultButton()">上傳定位點照片</button>
+
+            <p>辨識結果為</p>
+            <p>辨識結果儲存於：<span id="savePathPlaceholder"></span></p>
+            <div>
+                <input type="text" id="correctLabelInput"><button onclick="onclickCorrectLabel()">更正標籤</button>
+            </div>
+            <div id="resultCardContainer">
+                <p>還未啟動辨識</p>
+            </div>
+            
+        </div>
+
+
+    </div>
+
+
+
+    <script src="./js/index.js"></script>
+
+</body>
+  
+</style>
+
+</html>

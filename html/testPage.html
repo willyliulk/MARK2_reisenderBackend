@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Image Display</title>
+</head>
+<body>
+    <img id="imageDisplay" />
+
+    <script>
+        const ws = new WebSocket('ws://localhost:8800/v2/ws/cam/0'); // Replace with your WebSocket server URL
+        const imageElement = document.getElementById('imageDisplay');
+
+        ws.onmessage = function(event) {
+            // Assuming the received data is base64 encoded image
+            const base64Image = event.data;
+            
+            // Set the image source with the base64 data
+            imageElement.src = 'data:image/jpeg;base64,' + base64Image;
+        };
+
+        ws.onerror = function(error) {
+            console.error('WebSocket Error:', error);
+        };
+
+        ws.onclose = function() {
+            console.log('WebSocket connection closed');
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+[project]
+name = "pythonbackend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.115.11",
+    "loguru>=0.7.3",
+    "opencv-python>=4.11.0.86",
+    "pygame>=2.6.1",
+    "pynng>=0.8.1",
+    "pyserial>=3.5",
+    "requests>=2.32.3",
+    "singleton-decorator>=1.0.0",
+    "transitions>=0.9.2",
+]
