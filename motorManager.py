@@ -11,7 +11,7 @@ from loguru import logger
 import os, asyncio
 import signal
 import httpx
-from pynng import Pub0, Sub0
+from pynng import Pub0, Sub0, exceptions
 import json
 
 class Singleton(type):
@@ -198,8 +198,11 @@ class MotorManager_v2():
     async def startManger(self):
         logger.debug("startManger")
         self.manageState = self.ManageState.RUNNING
-        self.pub.dial(self.addres)
-        self.sub.dial(self.addres)
+        try:
+            self.pub.dial(self.addres)
+            self.sub.dial(self.addres)
+        except exceptions.ConnectionRefused as e:
+            pass
         self.sub.subscribe(f'motor|{self.id}|angle')
         self.sub.subscribe(f'motor|{self.id}|speed')
         self.recv_task = asyncio.create_task(self.msg_recv_job())

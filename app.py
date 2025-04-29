@@ -15,7 +15,7 @@ from pathlib import Path
 from enum import Enum
 from typing import List
 from contextlib import asynccontextmanager
-
+import pynng
 from utils import get_min_len_path
 from motorManager import MotorManager, MotorManager_v2
 
@@ -70,8 +70,13 @@ class ResourceManager:
     async def initialize(self):
         """異步初始化方法"""
         # 初始化全部 MotorManager_v2
-        for motor_v2 in self.motorV2_list:
-            await motor_v2.startManger()
+        try:
+            for motor_v2 in self.motorV2_list:
+                await motor_v2.startManger()
+        except Exception as e:
+            pass
+        except pynng.exceptions.ConnectionRefused as e:
+            pass
 
     async def cleanup(self):
         self.motor.closeManager()
@@ -502,16 +507,25 @@ def post_correctLabel(correctLabel:str):
 
 
 #region MARK2
-
+btnshot = 0
 @app.get('/v2/motor/{id}/data')
 def v2_get_motor_data(id:int, resources: ResourceManager = Depends(get_resources)):
-    data = resources.motorV2_list[id]
+    if id >= len(resources.motorV2_list):
+        return JSONResponse(status_code=404, content={"error": "Motor not found"})
+    global btnshot
+    data = resources.motorV2_list[id].get_motorData()
+    btnshot = 0 if btnshot == 1 else 1
     return {'id':id,
             'pos':data.pos,
-            'vel':data.vel,}
+            'vel':data.vel,
+            'btnShot':btnshot,
+            'stop':0}
 
 @app.websocket('/v2/ws/motor/{id}/data')
 async def v2_ws_motor_data(websocket:WebSocket ,id:int):
+    if id >= len(resources.motorV2_list):
+        return JSONResponse(status_code=404, content={"error": "Motor not found"})
+    global btnshot
     await websocket.accept()
     # 從 websocket.state 獲取 resources
     resources = websocket.app.state.resources
@@ -522,7 +536,8 @@ async def v2_ws_motor_data(websocket:WebSocket ,id:int):
             motorDataJson = {
                 'id':id,
                 'pos':data.pos,
-                'vel':data.vel
+                'btnShot':btnshot,
+                'stop':0
             }
             await websocket.send_json(motorDataJson)
             await asyncio.sleep(0.1)
@@ -553,6 +568,8 @@ async def v2_ws_cam(websocket:WebSocket ,id:int):
 @app.post('/v2/motor/{id}/move/stop')
 def v2_motor_move_stop(id:int,
                     resources: ResourceManager = Depends(get_resources)):
+    if id >= len(resources.motorV2_list):
+        return JSONResponse(status_code=404, content={"error": "Motor not found"})
     motor = resources.motorV2_list[id]
     motor.motorStop()
     return {"status": "OK"}
@@ -560,6 +577,8 @@ def v2_motor_move_stop(id:int,
 @app.post('/v2/motor/{id}/move/abs')
 def v2_motor_move_abs(id:int, moveAbsReq:MotorMoveAbsReq,
                    resources: ResourceManager = Depends(get_resources)):
+    if id >= len(resources.motorV2_list):
+        return JSONResponse(status_code=404, content={"error": "Motor not found"})
     motor = resources.motorV2_list[id]
     pos = moveAbsReq.pos
     motor.goAbsPos(pos)
@@ -743,7 +762,7 @@ def v2_get_motor_spInit():
 
 if __name__ == "__main__":
     logger.remove()
-    logger.add(sys.stderr, level="DEBUG")
+    logger.add(sys.stderr, level="INFO")
 
     print('hello')
     uvicorn.run(app='app:app', host="0.0.0.0", port=8800)
