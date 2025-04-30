@@ -6,9 +6,9 @@ uv sync
 
 文件中附上openapi.json，可以作為不使用模擬伺服器時的參考
 
+系統於winidows上開發，ubuntu系統也可使用 \
 執行程式請使用以下指令\
 開啟一個終端執行，啟動模擬器
-系統於winidows上開發，ubuntu系統也可使用
 ```lang=bash
 cd MARK2_reisenderBackend
 source .venv/bin/activate # linux
@@ -50,7 +50,7 @@ uv run ./app.py
 ```
 base64 編碼圖像
 可參考 /html/testPage.html
-有其他序列化需求可再討論
+有其他序列化需求或建議可再討論
 ```
 
 * /v2/ws/mechine
