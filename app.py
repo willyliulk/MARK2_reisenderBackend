@@ -561,7 +561,7 @@ async def v2_ws_motor_data(websocket:WebSocket ,id:int):
                 'id':id,
                 'pos':data.pos,
                 'vel':data.vel,
-                'state':state,
+                'state':state.name,
                 'proximitys':proximitys,
                 'is_home':is_home,
             }

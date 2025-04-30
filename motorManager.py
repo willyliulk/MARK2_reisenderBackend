@@ -178,9 +178,10 @@ class MotorManager_v2():
         RUNNING = 1
         
     class MotorState(Enum):
-        IDEL = 0
-        RUNNING = 1
-        ERROR = 2
+        IDEL = "IDEL"
+        RUNNING = "RUNNING"
+        ERROR = "ERROR"
+
     
     @dataclass
     class MotorData:
