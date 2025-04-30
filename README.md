@@ -7,6 +7,8 @@
 uv sync
 ```
 
+文件中附上openapi.json，可以作為不使用模擬伺服器時的參考
+
 執行程式請使用以下指令\
 開啟一個終端執行，啟動模擬器
 ```lang=bash
@@ -18,8 +20,9 @@ uv run .\mechineSimulator\testPlace3.py
 ```lang=bash
 cd MARK2_reisenderBackend
 source .venv/bin/activate # linux
-uv run .\mechineSimulator\testPlace3.py 
+uv run ./app.py 
 ```
+
 
 ## websocket 設計
 目前提供三個webcoket端點 \

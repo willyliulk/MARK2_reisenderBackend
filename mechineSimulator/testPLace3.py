@@ -3,6 +3,7 @@ import sys
 import os
 import math
 import threading
+import asyncio
 import pynng
 import json
 from enum import Enum
@@ -165,10 +166,73 @@ class CameraSystem:
         self.dragging_camera = None
         self.clock = pygame.time.Clock()
 
+        # 建立事件循環與async task
+        self.loop = asyncio.new_event_loop()
         self.running = True
-        self.comm_thread = threading.Thread(target=self.communication_thread)
-        self.comm_thread.daemon = True
-        self.comm_thread.start()
+
+        # 改為訂閱模式的pynng socket
+        self.sub = pynng.Sub0()
+        self.sub.listen("tcp://127.0.0.1:5555")  # 連接到發佈端
+        # 訂閱兩個鏡頭相關主題，根據MotorManager_v2格式
+        
+        topicList:list[str] = []
+        for id in [0, 1]:
+            topicList.append(f"motor|{id}|goAbsPos".encode())
+            topicList.append(f"motor|{id}|goIncPos".encode())
+            topicList.append(f"motor|{id}|goHomePos".encode())            
+            topicList.append(f"motor|{id}|stop".encode())
+        
+        for topic in topicList:
+            self.sub.subscribe(topic)
+            
+
+        # 啟動非同步接收任務
+        self.recv_task = self.loop.create_task(self.receive_messages())
+    
+    async def receive_messages(self):
+        while self.running:
+            try:
+                msg = await self.sub.arecv()
+                msg_str = msg.decode()
+                # 範例訊息格式: motor|1|goAbsPos:90
+                # 解析主題與指令
+                parts = msg_str.split('|')
+                if len(parts) < 3:
+                    continue
+                prefix, cam_id_str, cmd_with_param = parts[0], parts[1], parts[2]
+                if prefix != 'motor':
+                    continue
+                try:
+                    cam_id = int(cam_id_str) + 1
+                except:
+                    continue
+                camera = next((c for c in self.cameras if c.id == cam_id), None)
+                if not camera:
+                    continue
+
+                # cmd_with_param 可能是 "goAbsPos:90" 或 "stop:"
+                if ':' in cmd_with_param:
+                    cmd, param = cmd_with_param.split(':', 1)
+                else:
+                    cmd, param = cmd_with_param, ''
+
+                if cmd == "goAbsPos":
+                    try:
+                        angle = float(param)
+                        camera.rotate_to_angle(angle)
+                        camera.rotation_speed = 90  # 可調整速度
+                    except:
+                        pass
+                elif cmd == "stop":
+                    camera.state = CameraState.IDLE
+                    camera.rotation_speed = 0
+
+                # 可擴展其他指令...
+
+            except Exception as e:
+                print(f"接收錯誤: {e}")
+                await asyncio.sleep(0.1)
+
 
     def communication_thread(self):
         try:
@@ -218,8 +282,17 @@ class CameraSystem:
             return {"status": "error", "message": str(e)}
 
     def run(self):
-        last_time = pygame.time.get_ticks() / 1000.0
+        # 啟動asyncio事件循環與pygame主迴圈並行
+        import threading
 
+        def loop_in_thread(loop):
+            asyncio.set_event_loop(loop)
+            loop.run_forever()
+
+        t = threading.Thread(target=loop_in_thread, args=(self.loop,), daemon=True)
+        t.start()
+
+        last_time = pygame.time.get_ticks() / 1000.0
         while self.running:
             current_time = pygame.time.get_ticks() / 1000.0
             dt = current_time - last_time
@@ -254,6 +327,14 @@ class CameraSystem:
                 camera.draw(self.screen)
             pygame.display.flip()
             self.clock.tick(60)
+
+        # 停止非同步任務與事件循環
+        self.running = False
+        self.loop.call_soon_threadsafe(self.loop.stop)
+        t.join()
+
+    def cleanup(self):
+        pygame.quit()
 
     def cleanup(self):
         pygame.quit()

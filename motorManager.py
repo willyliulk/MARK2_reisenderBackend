@@ -254,8 +254,8 @@ class MotorManager_v2():
         
     def get_proximitys(self):
         fakeProximity = [False, False]
-        return fakeProximity
-        # return self.motorProximity
+        self.motorProximity = fakeProximity
+        return self.motorProximity
     
     def is_home(self):
         '''return True if motor is at home position'''

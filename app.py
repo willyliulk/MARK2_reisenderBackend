@@ -124,7 +124,7 @@ async def lifespan(app: FastAPI):
 # ----------- FastAPI App -----------
 app = FastAPI(lifespan=lifespan, title="ReisenderTECH MARK I",
               description='''MARK I API 包含馬達控制與影片串流 \n
-              websocket端點有\n
+              websocket端點：\n
               馬達資訊：/v2/ws/motor/{id}/data\n
               影像串流：/v2/ws/cam/{id}\n
               按鈕狀態：/v2/ws/mechine''')
@@ -514,10 +514,16 @@ def post_correctLabel(correctLabel:str):
 #region MARK2
 
 @app.get('/v2/mechine/emergency')
-def v2_get_motor_data(id:int, resources: ResourceManager = Depends(get_resources)):
+def v2_get_mechine_emergency(resources: ResourceManager = Depends(get_resources)):
+    return {'emergency':False}
 
-    return {'state':'ok'}
+@app.get('/v2/mechine/health')
+def v2_get_mechine_health(resources: ResourceManager = Depends(get_resources)):
+    return {'health':'ok'}
 
+@app.get('/v2/mechine/eroor_log')
+def v2_get_mechine_error_log(resources: ResourceManager = Depends(get_resources)):
+    return {'error_log':"randomPlaceholder"}
 
 @app.get('/v2/motor/{id}/data')
 def v2_get_motor_data(id:int, resources: ResourceManager = Depends(get_resources)):
@@ -644,7 +650,7 @@ def v2_motor_move_abs(id:int, moveAbsReq:MotorMoveAbsReq,
     return {"status": "OK"}
 
 @app.post('/v2/motor/{id}/move/home')
-def v2_motor_move_abs(id:int, moveAbsReq:MotorMoveAbsReq,
+def v2_motor_move_home(id:int, moveAbsReq:MotorMoveAbsReq,
                    resources: ResourceManager = Depends(get_resources)):
     if id >= len(resources.motorV2_list):
         return JSONResponse(status_code=404, content={"error": "Motor not found"})
@@ -665,15 +671,18 @@ async def wait_motor_move_to_pos(motor:MotorManager_v2, motor_id: int, target_po
     start = time.time()
     while True:
         motor_pos = motor.get_motorData().pos
-        motor_proximity = motor.motorProximity
+        motor_proximity = motor.get_proximitys()
+        motor_stop = any(motor_proximity) or motor.motorState==MotorManager_v2.MotorState.ERROR
 
         # 抵達目標點或被停止
         if abs(motor_pos - target_pos) <= 5:
+            logger.debug(f'Motor move to {motor_pos} success')
             break
         
         # 處理執行超時
-        if time.time() - start > 10:
-            raise HTTPException(status_code=408, detail="Motor move timeout")
+        if time.time() - start > 5:
+            logger.error(f"Motor {motor_id} move to pos {target_pos} timeout, now at {motor_pos}")
+            raise HTTPException(status_code=408, detail=f"Motor move timeout to target: {target_pos}")
         
         # 處理停止指令
         if motor_stop:
