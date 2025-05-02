@@ -76,6 +76,9 @@ class ResourceManager:
         Distortion_coefficients = np.array(cam_data['distortion_coefficients'])
         self.camera_matrix = Camera_matrix
         self.distortion_coefficients = Distortion_coefficients
+        
+        # TODO:更新mechine manager
+        self.machineGood = True
 
         
     
@@ -527,15 +530,17 @@ def post_correctLabel(correctLabel:str):
 
 @app.get('/v2/machine/emergency')
 def v2_get_machine_emergency(resources: ResourceManager = Depends(get_resources)):
-    return {'emergency':False}
+    return {'emergency':not resources.machineGood}
 
 @app.get('/v2/machine/health')
 def v2_get_machine_health(resources: ResourceManager = Depends(get_resources)):
     # {'health':'ok'} 
     # 馬達問題回傳 "motor"
     # 鏡頭問題回傳 "camera"
-    raise HTTPException(status_code=500, detail="Motor error")
-    return {'health':'ok'}
+    if resources.machineGood:
+        return {'health':'ok'}
+    else:
+        raise HTTPException(status_code=500, detail="Motor error")
 
 @app.get('/v2/machine/error_log')
 def v2_get_machine_error_log(resources: ResourceManager = Depends(get_resources)):
@@ -543,8 +548,13 @@ def v2_get_machine_error_log(resources: ResourceManager = Depends(get_resources)
 
 @app.post('/v2/machine/raise_error')
 def v2_post_machine_raise_error(resources: ResourceManager = Depends(get_resources)):
-    
+    resources.machineGood = False
     return {'error':'Error raised by user.'}
+
+@app.post('/v2/machine/resolve')
+def v2_post_machine_resolve(resources: ResourceManager = Depends(get_resources)):
+    resources.machineGood = True
+    return {'statue':'ok'}
 
 @app.get('/v2/motor/{id}/data')
 def v2_get_motor_data(id:int, resources: ResourceManager = Depends(get_resources)):
@@ -821,7 +831,7 @@ async def v2_motors_move_sp(spReq: MotorSetPointReq,
         # 保存設定點位置
         if spReq.pos_list:
             with open('SPconfig.json', 'w') as f:
-                json.dump(spReq.pos_list, f)
+                json.dump(spReq, f)
             logger.info(f"Saved SPconfig.json: {spReq.pos_list}")
             
         return JSONResponse(content=image_results)
@@ -830,11 +840,35 @@ async def v2_motors_move_sp(spReq: MotorSetPointReq,
         logger.error(f"Error in v2_motors_move_sp: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post('/v2/motors/spSim')
+async def v2_motors_spSim(spReq: MotorSetPointReq,
+                          resources: ResourceManager = Depends(get_resources)):
+    """處理多點移動請求並返回拍攝的圖片"""
+    
+    simData = {
+            "motor0":[0,10,20,40,50],
+            "motor1":[180,170,160,150]
+        }
+    return simData
+
 # 新增一個拍照的端點
-@app.post('/v2/cam/shot')
+@app.post('/v2/cam/shot', description="目前暫時回傳固定測試資料")
 async def v2_cam_shot(shotReq: MotorSetPointReq,
                         resources: ResourceManager = Depends(get_resources)):
     """執行拍照序列"""
+    # test data
+    with open("./tools/testImgData.json") as f:
+        json_data = json.load(f)
+    
+    with open('SPconfig.json', 'w') as f:
+        momdelJson = shotReq.model_dump_json()
+        momdelJson = json.loads(momdelJson)
+        json.dump(momdelJson, f)
+        logger.info(f"Saved SPconfig.json: {shotReq.pos_list}")
+
+    
+    return json_data
+    
     try:
         # 清理舊檔案
         save_dir = "motorImage"
@@ -895,8 +929,10 @@ def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
 
 if __name__ == "__main__":
     logger.remove()
-    logger.add(sys.stderr, level="INFO")
-
+    # 子模塊也都只顯示info leve; 訊息
+    logger.add(sys.stdout, level="INFO")
+    logger.add("log/app.log", level="INFO", rotation="10 MB", compression="zip")
+    logger.configure(handlers=[{"sink": sys.stderr, "level": "INFO"}])
     print('hello')
-    uvicorn.run(app='app:app', host="0.0.0.0", port=8800, reload=True)
+    uvicorn.run(app='app:app', host="0.0.0.0", port=8800)
 
