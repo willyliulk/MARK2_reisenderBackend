@@ -183,7 +183,7 @@ class CameraSystem:
         # 啟動MQTT連接
         try:
             self.client.connect(self.broker, self.port, 60)
-            print(f"已連接到MQTT代理: {broker}:{port}")
+            print(f"已連接到 broker: {broker}:{port}")
             
             # 為不同主題設置專用回調函數
             for motor_id in [0, 1]:  # 對應相機ID 1和2
@@ -199,13 +199,13 @@ class CameraSystem:
             self.data_publish_thread.start()
             
         except Exception as e:
-            print(f"MQTT連接失敗: {e}")
+            print(f"broker連接失敗: {e}")
             self.running = False
     
     def on_connect(self, client, userdata, flags, rc):
         """MQTT連接回調函數"""
         if rc == 0:
-            print("成功連接到MQTT代理")
+            print("成功連接到broker")
             for motor_id in [0, 1]:  # 對應相機ID 1和2
                 self.client.subscribe(f"motor/{motor_id}/cmd/goAbsPos")
                 self.client.subscribe(f"motor/{motor_id}/cmd/goIncPos")
