@@ -3,8 +3,7 @@ import sys
 import os
 import math
 import threading
-import asyncio
-import pynng
+import paho.mqtt.client as mqtt
 import json
 from enum import Enum
 
@@ -13,6 +12,7 @@ class CameraState(Enum):
     DRAGGING = 1
     ROTATING_TO_ANGLE = 2
     ROTATING = 3
+    ERROR_HIT = 4
 
 class Camera:
     def __init__(self, x, y, radius=20, color=(255, 0, 0), id=0, angle_limit=(0, 360)):
@@ -129,7 +129,7 @@ class Camera:
             distance = math.sqrt(dx*dx + dy*dy)
             if distance < self.radius + other_camera.radius:
                 self.rotation_speed = 0
-                self.state = CameraState.IDLE
+                self.state = CameraState.ERROR_HIT
                 return
 
         self.x = new_x
@@ -141,7 +141,7 @@ class Camera:
         self.imageRect.center = (self.x, self.y)
 
 class CameraSystem:
-    def __init__(self):
+    def __init__(self, broker="127.0.0.1", port=11883):
         pygame.init()
         self.width, self.height = 800, 600
         self.screen = pygame.display.set_mode((self.width, self.height))
@@ -152,8 +152,8 @@ class CameraSystem:
         self.base_radius = 50
 
         # 角度上下限設定（可自訂）
-        angle_limit_cam1 = (0, 360)  # 可修改為其他範圍
-        angle_limit_cam2 = (0, 360)
+        angle_limit_cam1 = (15, 345)  # 可修改為其他範圍
+        angle_limit_cam2 = (15, 345)
 
         self.cameras = [
             Camera(self.base_x - 150, self.base_y, color=(255, 0, 0), id=1, angle_limit=angle_limit_cam1),
@@ -165,133 +165,154 @@ class CameraSystem:
 
         self.dragging_camera = None
         self.clock = pygame.time.Clock()
-
-        # 建立事件循環與async task
-        self.loop = asyncio.new_event_loop()
         self.running = True
 
-        # 改為訂閱模式的pynng socket
-        self.sub = pynng.Sub0()
-        self.sub.listen("tcp://127.0.0.1:5555")  # 連接到發佈端
-        # 訂閱兩個鏡頭相關主題，根據MotorManager_v2格式
+        # 設置MQTT客戶端
+        self.client = mqtt.Client(client_id="camera_system")
+        self.client.on_connect = self.on_connect
+        self.client.on_disconnect = self.on_disconnect
         
-        topicList:list[str] = []
-        for id in [0, 1]:
-            topicList.append(f"motor|{id}|goAbsPos".encode())
-            topicList.append(f"motor|{id}|goIncPos".encode())
-            topicList.append(f"motor|{id}|goHomePos".encode())            
-            topicList.append(f"motor|{id}|stop".encode())
+        # 設置MQTT連接參數
+        self.broker = broker
+        self.port = port
         
-        for topic in topicList:
-            self.sub.subscribe(topic)
+        self.data_publish_thread = threading.Thread(target=self.publish_data_task) 
+        # self.data_publish_thread.daemon = True
+        self.data_publish_interval = 0.1  # 每秒發送一次數據
+
+        # 啟動MQTT連接
+        try:
+            self.client.connect(self.broker, self.port, 60)
+            print(f"已連接到MQTT代理: {broker}:{port}")
             
-
-        # 啟動非同步接收任務
-        self.recv_task = self.loop.create_task(self.receive_messages())
-    
-    async def receive_messages(self):
-        while self.running:
-            try:
-                msg = await self.sub.arecv()
-                msg_str = msg.decode()
-                # 範例訊息格式: motor|1|goAbsPos:90
-                # 解析主題與指令
-                parts = msg_str.split('|')
-                if len(parts) < 3:
-                    continue
-                prefix, cam_id_str, cmd_with_param = parts[0], parts[1], parts[2]
-                if prefix != 'motor':
-                    continue
-                try:
-                    cam_id = int(cam_id_str) + 1
-                except:
-                    continue
-                camera = next((c for c in self.cameras if c.id == cam_id), None)
-                if not camera:
-                    continue
-
-                # cmd_with_param 可能是 "goAbsPos:90" 或 "stop:"
-                if ':' in cmd_with_param:
-                    cmd, param = cmd_with_param.split(':', 1)
-                else:
-                    cmd, param = cmd_with_param, ''
-
-                if cmd == "goAbsPos":
-                    try:
-                        angle = float(param)
-                        camera.rotate_to_angle(angle)
-                        camera.rotation_speed = 90  # 可調整速度
-                    except:
-                        pass
-                elif cmd == "stop":
-                    camera.state = CameraState.IDLE
-                    camera.rotation_speed = 0
-
-                # 可擴展其他指令...
-
-            except Exception as e:
-                print(f"接收錯誤: {e}")
-                await asyncio.sleep(0.1)
-
-
-    def communication_thread(self):
-        try:
-            with pynng.Sub0(listen="tcp://127.0.0.1:5555", recv_timeout=100) as sub:
-                sub.subscribe("")
-                print("通訊服務已啟動，監聽 tcp://127.0.0.1:5555")
-                while self.running:
-                    try:
-                        msg = sub.recv()
-                        command = json.loads(msg.decode('utf-8'))
-                        response = self.process_command(command)
-                        sub.send(json.dumps(response).encode('utf-8'))
-                    except pynng.exceptions.Timeout:
-                        continue
-                    except json.JSONDecodeError:
-                        sub.send(json.dumps({"status": "error", "message": "Invalid JSON"}).encode('utf-8'))
+            # 為不同主題設置專用回調函數
+            for motor_id in [0, 1]:  # 對應相機ID 1和2
+                # 設置每個命令的回調函數
+                self.client.message_callback_add(f"motor/{motor_id}/cmd/goAbsPos", self.on_go_abs_pos)
+                self.client.message_callback_add(f"motor/{motor_id}/cmd/goIncPos", self.on_go_inc_pos)
+                self.client.message_callback_add(f"motor/{motor_id}/cmd/goHomePos", self.on_go_home_pos)
+                self.client.message_callback_add(f"motor/{motor_id}/cmd/stop", self.on_stop)
+                            
+            # 啟動MQTT背景處理執行緒
+            self.client.loop_start()
+            
+            self.data_publish_thread.start()
+            
         except Exception as e:
-            print(f"通訊線程錯誤: {e}")
-
-    def process_command(self, command):
+            print(f"MQTT連接失敗: {e}")
+            self.running = False
+    
+    def on_connect(self, client, userdata, flags, rc):
+        """MQTT連接回調函數"""
+        if rc == 0:
+            print("成功連接到MQTT代理")
+            for motor_id in [0, 1]:  # 對應相機ID 1和2
+                self.client.subscribe(f"motor/{motor_id}/cmd/goAbsPos")
+                self.client.subscribe(f"motor/{motor_id}/cmd/goIncPos")
+                self.client.subscribe(f"motor/{motor_id}/cmd/goHomePos")
+                self.client.subscribe(f"motor/{motor_id}/cmd/stop")
+        else:
+            print(f"連接失敗，返回碼: {rc}")
+            self.client.reconnect()
+    
+    def on_disconnect(self, client, userdata, rc):
+        """MQTT斷開連接回調函數"""
+        if rc != 0:
+            print(f"意外斷開連接，返回碼: {rc}")
+    
+    def on_go_abs_pos(self, client, userdata, msg):
+        """處理goAbsPos命令的回調函數"""
         try:
-            cmd_type = command.get("type")
-            camera_id = command.get("camera_id")
-
+            # 從主題中提取電機ID
+            topic_parts = msg.topic.split('/')
+            if len(topic_parts) < 4:
+                return
+            
+            motor_id = int(topic_parts[1])
+            camera_id = motor_id + 1  # 相機ID = 電機ID + 1
+            
+            # 獲取角度參數
+            angle = float(msg.payload.decode())
+            
+            # 找到對應的相機
             camera = next((c for c in self.cameras if c.id == camera_id), None)
-            if not camera:
-                return {"status": "error", "message": f"Camera ID {camera_id} not found"}
-
-            if cmd_type == "goAbsPos":  # 對應MotorManager_v2 goAbsPos指令
-                angle = command.get("pos")
-                if angle is None:
-                    return {"status": "error", "message": "Missing 'pos' parameter"}
+            if camera:
+                print(f"相機 {camera_id} 旋轉到 {angle} 度")
                 camera.rotate_to_angle(angle)
-                # 設定旋轉速度可依需求調整，這裡給一個預設值
-                camera.rotation_speed = 90  # 90度/秒
-                return {"status": "ok", "message": f"Camera {camera_id} rotating to {angle} degrees"}
-
-            elif cmd_type == "stop":
+                camera.rotation_speed = 90  # 可調整速度
+        except Exception as e:
+            print(f"處理goAbsPos命令時出錯: {e}")
+    
+    def on_go_inc_pos(self, client, userdata, msg):
+        """處理goIncPos命令的回調函數"""
+        try:
+            # 從主題中提取電機ID
+            topic_parts = msg.topic.split('/')
+            if len(topic_parts) < 4:
+                return
+            
+            motor_id = int(topic_parts[1])
+            camera_id = motor_id + 1
+            
+            # 獲取增量角度參數
+            inc_angle = float(msg.payload.decode())
+            
+            # 找到對應的相機
+            camera = next((c for c in self.cameras if c.id == camera_id), None)
+            if camera:
+                print(f"相機 {camera_id} 增量旋轉 {inc_angle} 度")
+                target_angle = (camera.rotation_angle + inc_angle) % 360
+                camera.rotate_to_angle(target_angle)
+                camera.rotation_speed = 90
+        except Exception as e:
+            print(f"處理goIncPos命令時出錯: {e}")
+    
+    def on_go_home_pos(self, client, userdata, msg):
+        """處理goHomePos命令的回調函數"""
+        try:
+            # 從主題中提取電機ID
+            topic_parts = msg.topic.split('/')
+            if len(topic_parts) < 4:
+                return
+            
+            motor_id = int(topic_parts[1])
+            camera_id = motor_id + 1
+            homePoint = float(msg.payload.decode())
+            
+            # 找到對應的相機
+            camera = next((c for c in self.cameras if c.id == camera_id), None)
+            if camera:
+                print(f"相機 {camera_id} 返回原點")
+                camera.rotate_to_angle(homePoint)  # 假設原點為0度
+                if homePoint < 180:
+                    camera.rotation_speed = 90
+                else:
+                    camera.rotation_speed = -90
+                    
+        except Exception as e:
+            print(f"處理goHomePos命令時出錯: {e}")
+    
+    def on_stop(self, client, userdata, msg):
+        """處理stop命令的回調函數"""
+        try:
+            # 從主題中提取電機ID
+            topic_parts = msg.topic.split('/')
+            if len(topic_parts) < 4:
+                return
+            
+            motor_id = int(topic_parts[1])
+            camera_id = motor_id + 1
+            
+            # 找到對應的相機
+            camera = next((c for c in self.cameras if c.id == camera_id), None)
+            if camera:
+                print(f"相機 {camera_id} 停止")
                 camera.state = CameraState.IDLE
                 camera.rotation_speed = 0
-                return {"status": "ok", "message": f"Camera {camera_id} stopped"}
-
-            else:
-                return {"status": "error", "message": f"Unknown command type: {cmd_type}"}
-
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            print(f"處理stop命令時出錯: {e}")
 
     def run(self):
-        # 啟動asyncio事件循環與pygame主迴圈並行
-        import threading
-
-        def loop_in_thread(loop):
-            asyncio.set_event_loop(loop)
-            loop.run_forever()
-
-        t = threading.Thread(target=loop_in_thread, args=(self.loop,), daemon=True)
-        t.start()
-
         last_time = pygame.time.get_ticks() / 1000.0
         while self.running:
             current_time = pygame.time.get_ticks() / 1000.0
@@ -328,19 +349,44 @@ class CameraSystem:
             pygame.display.flip()
             self.clock.tick(60)
 
-        # 停止非同步任務與事件循環
+    def cleanup(self):
+        """清理資源"""
         self.running = False
-        self.loop.call_soon_threadsafe(self.loop.stop)
-        t.join()
-
-    def cleanup(self):
+        # 等待數據發布線程結束
+        if self.data_publish_thread.is_alive():
+            self.data_publish_thread.join()
+        # 停止MQTT客戶端
+        if hasattr(self, 'client'):
+            self.client.loop_stop()
+            self.client.disconnect()
+        
+        # 關閉pygame
         pygame.quit()
 
-    def cleanup(self):
-        pygame.quit()
+    def publish_data_task(self):
+        import time
+        while self.running:
+            self.client.publish('motor/0/angle', str(self.cameras[0].rotation_angle))
+            self.client.publish('motor/1/angle', str(self.cameras[1].rotation_angle))
+            self.client.publish('motor/0/speed', str(self.cameras[0].rotation_speed))
+            self.client.publish('motor/1/speed', str(self.cameras[1].rotation_speed))
+            
+            time.sleep(self.data_publish_interval)
 
 if __name__ == "__main__":
-    system = CameraSystem()
+    # 可以通過命令行參數或配置文件設置MQTT代理
+    
+    # client = mqtt.Client()
+    # try:
+    #     client.connect("localhost", 11883, 60)
+    # except Exception as e:
+    #     print(f"連接失敗: {e}")
+    #     exit(1)
+    # print("連接成功")
+    # client.loop_forever()
+    
+    
+    system = CameraSystem(broker="localhost", port=11883)
     try:
         system.run()
     finally:

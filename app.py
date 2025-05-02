@@ -13,19 +13,29 @@ import base64, json
 import asyncio
 from pathlib import Path
 from enum import Enum
-from typing import List
+from typing import List, Optional, Dict
 from contextlib import asynccontextmanager
 import pynng
 from utils import get_min_len_path
 from motorManager import MotorManager, MotorManager_v2
 
+# TODO: 軟體按下 EmgStop 處理程序呼叫需要有API
+# TODO: 提供專門的API取得最近一次的拍照結果嗎?
+# TODO: 確認需要一個從 Cam/Shot 到 Predict 打包好的API嗎
+# TODO: 單獨開一個API保存setPoint清單
+# TODO: 多開一個API POST /v2/mechine/resolve，會觸發機器自我檢測
+# TODO: 更新motor的sp清單的shema
+
+
 # ----------- Pydantic Models -----------
-class MotorMoveSPRequest(BaseModel):
-    pos_list: List[int]
-    
-class ShotSPRequest(BaseModel):
-    pos_list: List[int]
-    
+class MotorSetPointReq(BaseModel):
+    pos_list: List[float]
+    pos_list_multiMotor: Optional[Dict[str, List[float]]] = {
+        "motor0":[10,20.55,30],
+        "motor1":[100,90,80.23]
+    }
+    sp_type: Optional[str] = "single"
+
 class MotorMoveAbsReq(BaseModel):
     pos: float
 class MotorMoveIncReq(BaseModel):
@@ -36,8 +46,8 @@ class ResourceManager:
     def __init__(self, motor_port: str, camera_configs: List[dict]):
         self.motor:MotorManager = MotorManager(motor_port)
         self.motorV2_list = [
-            MotorManager_v2(0, addres="tcp://127.0.0.1:5555"),
-            MotorManager_v2(1, addres="tcp://127.0.0.1:5555")
+            MotorManager_v2(0, 15),
+            MotorManager_v2(1, 345)
         ]
         self.dataStop = False
         self.cameras_list = {}
@@ -66,6 +76,8 @@ class ResourceManager:
         Distortion_coefficients = np.array(cam_data['distortion_coefficients'])
         self.camera_matrix = Camera_matrix
         self.distortion_coefficients = Distortion_coefficients
+
+        
     
     async def initialize(self):
         """異步初始化方法"""
@@ -127,7 +139,7 @@ app = FastAPI(lifespan=lifespan, title="ReisenderTECH MARK I",
               websocket端點：\n
               馬達資訊：/v2/ws/motor/{id}/data\n
               影像串流：/v2/ws/cam/{id}\n
-              按鈕狀態：/v2/ws/mechine''')
+              按鈕狀態：/v2/ws/machine''')
 app.mount("/js"     , StaticFiles(directory="./html/js"))
 app.mount("/css"    , StaticFiles(directory="./html/css"))
 app.mount("/numPic" , StaticFiles(directory="./html/numPic"))
@@ -286,7 +298,7 @@ def motor_move_abs(value:int):
     return "OK"
 
 @app.post('/motor/move/sp', deprecated=True)
-async def motor_move_sp(req: MotorMoveSPRequest, 
+async def motor_move_sp(req: MotorSetPointReq, 
                   resources: ResourceManager = Depends(get_resources)):
     global motorManager, dataStop
     logger.debug(f'motor move sp: {req.pos_list}')
@@ -404,7 +416,7 @@ async def cam_shot(listSP: List[int]):
 
     return JSONResponse(imageList)
 
-@app.get('/motor/spInit', deprecated=True)
+@app.get('/motors/spInit', deprecated=True)
 def get_motor_spInit():
     with open('SPconfig.json', 'r') as f:
         loaded_list = json.load(f)
@@ -513,17 +525,26 @@ def post_correctLabel(correctLabel:str):
 
 #region MARK2
 
-@app.get('/v2/mechine/emergency')
-def v2_get_mechine_emergency(resources: ResourceManager = Depends(get_resources)):
+@app.get('/v2/machine/emergency')
+def v2_get_machine_emergency(resources: ResourceManager = Depends(get_resources)):
     return {'emergency':False}
 
-@app.get('/v2/mechine/health')
-def v2_get_mechine_health(resources: ResourceManager = Depends(get_resources)):
+@app.get('/v2/machine/health')
+def v2_get_machine_health(resources: ResourceManager = Depends(get_resources)):
+    # {'health':'ok'} 
+    # 馬達問題回傳 "motor"
+    # 鏡頭問題回傳 "camera"
+    raise HTTPException(status_code=500, detail="Motor error")
     return {'health':'ok'}
 
-@app.get('/v2/mechine/eroor_log')
-def v2_get_mechine_error_log(resources: ResourceManager = Depends(get_resources)):
+@app.get('/v2/machine/error_log')
+def v2_get_machine_error_log(resources: ResourceManager = Depends(get_resources)):
     return {'error_log':"randomPlaceholder"}
+
+@app.post('/v2/machine/raise_error')
+def v2_post_machine_raise_error(resources: ResourceManager = Depends(get_resources)):
+    
+    return {'error':'Error raised by user.'}
 
 @app.get('/v2/motor/{id}/data')
 def v2_get_motor_data(id:int, resources: ResourceManager = Depends(get_resources)):
@@ -537,7 +558,7 @@ def v2_get_motor_data(id:int, resources: ResourceManager = Depends(get_resources
         'id':id,
         'pos':data.pos,
         'vel':data.vel,
-        'state':state,
+        'state':state.name,
         'proximitys':proximitys,
         'is_home':is_home,
     }
@@ -592,22 +613,25 @@ async def v2_ws_cam(websocket:WebSocket ,id:int):
         logger.info(f"WebSocket connection closed for cam {id}")
 
 
-def get_mechien_state(resources: ResourceManager):
+def get_machien_state(resources: ResourceManager):
     # IDEL: 如果所有軸都處於正常狀態
     # SHOTTING : 拍照中返回
     # AI_PROC : AI處理中
     # ERROR : 如果有軸處於異常狀態
     # 如果有軸處於異常狀態，則返回 ERROR
+    # TODO 補齊功能
     return 'IDLE' # fake foro debug
     for motor in resources.motorV2_list:
         if motor.get_motorState() == 'error':
             return 'ERROR'
 
-def get_mechint_btn(resources: ResourceManager) -> list[str]:
+def get_machine_btn(resources: ResourceManager) -> list[str]:
+    # 可能包含 ["shot", 'home', "EMG"]
+    # TODO 補齊功能
     return []
     
-@app.websocket('/v2/ws/mechine')
-async def v2_ws_mechine(websocket:WebSocket):
+@app.websocket('/v2/ws/machine')
+async def v2_ws_machine(websocket:WebSocket):
     await websocket.accept()
     # 從 websocket.state 獲取 resources
     resources :ResourceManager = websocket.app.state.resources
@@ -615,19 +639,19 @@ async def v2_ws_mechine(websocket:WebSocket):
     try:
         while True:
             # data = resources.motorV2_list[id].get_motorData()
-            staet = get_mechien_state(resources)
-            btn_on = get_mechint_btn(resources)
-            mechineDataJson = {
+            staet = get_machien_state(resources)
+            btn_on = get_machine_btn(resources)
+            machineDataJson = {
                 'emergency':False,
                 'reason':'random Placeholder',
                 'state':staet,
                 'colorLight':'y',
                 'btn_on':btn_on
             }
-            await websocket.send_json(mechineDataJson)
+            await websocket.send_json(machineDataJson)
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
-        logger.info(f"WebSocket connection closed for mechine")
+        logger.info(f"WebSocket connection closed for machine")
 
 
 @app.post('/v2/motor/{id}/move/stop')
@@ -650,14 +674,12 @@ def v2_motor_move_abs(id:int, moveAbsReq:MotorMoveAbsReq,
     return {"status": "OK"}
 
 @app.post('/v2/motor/{id}/move/home')
-def v2_motor_move_home(id:int, moveAbsReq:MotorMoveAbsReq,
-                   resources: ResourceManager = Depends(get_resources)):
+def v2_motor_move_home(id:int, resources: ResourceManager = Depends(get_resources)):
     if id >= len(resources.motorV2_list):
         return JSONResponse(status_code=404, content={"error": "Motor not found"})
-    return {"status": "OK"}
     motor = resources.motorV2_list[id]
-    pos = moveAbsReq.pos
-    motor.goAbsPos(pos)
+    motor.goHomePos()
+    return {"status": "OK"}
 
 @app.post('/v2/motor/{id}/move/inc')
 def v2_motor_move_inc(id:int, moveIncReq:MotorMoveIncReq,
@@ -719,21 +741,31 @@ async def capture_images(resources: ResourceManager, position_index: int) -> dic
 
     return image_data
 
-async def handle_single_motor_sequence(resources: ResourceManager, motor_id: int, positions: List[float], to_shot: bool = False) -> List[dict]:
+async def handle_single_motor_sequence(resources: ResourceManager, motor_id: int,
+                                       positions: List[float], to_reverse = False, 
+                                       to_shot: bool = False) -> List[dict]:
     """處理單個馬達的移動和拍照序列"""
     motor = resources.motorV2_list[motor_id]
     image_results = []
     
-    for pos in positions:
+    # for pos in positions:
+    while positions:
+        if to_reverse:
+            target_pos = positions.pop(-1)
+        else:
+            target_pos = positions.pop(0)
+        
         # 移動到指定位置
-        motor.goAbsPos(pos)
-        await wait_motor_move_to_pos(motor, motor_id, pos)
+        motor.goAbsPos(target_pos)
+        await wait_motor_move_to_pos(motor, motor_id, target_pos)
         await asyncio.sleep(0.5)  # 穩定等待
         
         # 如果需要拍照
         if to_shot:
-            images = await capture_images(resources, f"{motor_id}_{pos}")
+            images = await capture_images(resources, f"{motor_id}_{target_pos}")
             image_results.append(images)
+    
+    motor.goHomePos()
     
     return image_results
 
@@ -742,15 +774,18 @@ async def sp_move_helper(resources: ResourceManager, sp_list: List[float], to_sh
     sp_queue = sorted(sp_list)  # 排序位置列表
     
     # 創建兩個並行任務，一個從小到大，一個從大到小
-    task1 = asyncio.create_task(
-        handle_single_motor_sequence(resources, 0, sp_queue, to_shot)
-    )
-    task2 = asyncio.create_task(
-        handle_single_motor_sequence(resources, 1, list(reversed(sp_queue)), to_shot)
-    )
+    # task1 = asyncio.create_task(
+    #     handle_single_motor_sequence(resources, 0, sp_queue, to_shot)
+    # )
+    # task2 = asyncio.create_task(
+    #     handle_single_motor_sequence(resources, 1, sp_queue, to_shot, to_reverse=True)
+    # )
     
     # 等待兩個任務完成並獲取結果
-    results1, results2 = await asyncio.gather(task1, task2)
+    results1, results2 = await asyncio.gather(
+        handle_single_motor_sequence(resources, 0, sp_queue, False, to_shot), 
+        handle_single_motor_sequence(resources, 1, sp_queue, True , to_shot)
+    )
     
     if not to_shot:
         return {"status": "OK"}
@@ -769,7 +804,7 @@ async def sp_move_helper(resources: ResourceManager, sp_list: List[float], to_sh
     return image_results
 
 @app.post('/v2/motors/move/sp')
-async def v2_motors_move_sp(spReq: MotorMoveSPRequest,
+async def v2_motors_move_sp(spReq: MotorSetPointReq,
                           resources: ResourceManager = Depends(get_resources)):
     """處理多點移動請求並返回拍攝的圖片"""
     try:
@@ -787,6 +822,7 @@ async def v2_motors_move_sp(spReq: MotorMoveSPRequest,
         if spReq.pos_list:
             with open('SPconfig.json', 'w') as f:
                 json.dump(spReq.pos_list, f)
+            logger.info(f"Saved SPconfig.json: {spReq.pos_list}")
             
         return JSONResponse(content=image_results)
         
@@ -796,7 +832,7 @@ async def v2_motors_move_sp(spReq: MotorMoveSPRequest,
 
 # 新增一個拍照的端點
 @app.post('/v2/cam/shot')
-async def v2_cam_shot(shotReq: ShotSPRequest,
+async def v2_cam_shot(shotReq: MotorSetPointReq,
                         resources: ResourceManager = Depends(get_resources)):
     """執行拍照序列"""
     try:
@@ -810,6 +846,13 @@ async def v2_cam_shot(shotReq: ShotSPRequest,
         # 執行移動並拍照
         image_results = await sp_move_helper(resources, shotReq.pos_list, to_shot=True)
         
+        
+        # 保存設定點位置
+        if shotReq.pos_list:
+            with open('SPconfig.json', 'w') as f:
+                json.dump(shotReq.pos_list, f)
+            logger.info(f"Saved SPconfig.json: {spReq.pos_list}")
+            
         return JSONResponse(content=image_results)
         
     except Exception as e:
@@ -835,6 +878,18 @@ def v2_get_motor_spInit():
     # Return default points if no valid config found
     return JSONResponse([x for x in range(0, 60001, 1000)])
 
+
+@app.post('/v2/result/upload')
+def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
+    """
+    Upload the result to the server. The result is a list of dictionaries, each containing
+    the image data and the corresponding motor positions.
+    """
+    # TODO 補齊功能
+
+    return {'result':'top 3 result from vizuro AI'}
+
+
 #endregion 
 
 
@@ -844,3 +899,4 @@ if __name__ == "__main__":
 
     print('hello')
     uvicorn.run(app='app:app', host="0.0.0.0", port=8800, reload=True)
+

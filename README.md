@@ -61,7 +61,7 @@ base64 編碼圖像
     reason      :string,
     state       :{"IDEL", "SHOTTING", "AI_PROC", "ERROR"},
     colorLight  :{"r", "g", "y"},
-    btn_on      :["shot", "EMG"]
+    btn_on      :["shot", 'home', "EMG"]
 }
 ```
 

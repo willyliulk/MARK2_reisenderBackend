@@ -12,7 +12,9 @@ import os, asyncio
 import signal
 import httpx
 from pynng import Pub0, Sub0, exceptions
+import paho.mqtt.client as mqtt
 import json
+
 
 class Singleton(type):
     _instances = {}
@@ -178,9 +180,9 @@ class MotorManager_v2():
         RUNNING = 1
         
     class MotorState(Enum):
-        IDEL = "IDEL"
-        RUNNING = "RUNNING"
-        ERROR = "ERROR"
+        IDEL = 0
+        RUNNING = 1
+        ERROR = 2
 
     
     @dataclass
@@ -188,74 +190,138 @@ class MotorManager_v2():
         pos:int = 0
         vel:int = 0
         
-    def __init__(self, id=0, homePos=0, addres='ipc://tmp/motor.ipc'):
+    def __init__(self, id=0, homePos=0, broker='localhost', port=11883):
         '''ID由1開始'''
         self.id=id
         self.homePos=homePos
-        self.addres=addres
-        self.pub = Pub0()
-        self.sub = Sub0()
-        self.recv_task = None
-        self.manageState = self.ManageState.STOP
         self.motorData = self.MotorData()
         self.motorState = self.MotorState.IDEL
         self.motorProximity = [False, False]
         
+        self.__managerState = self.ManageState.STOP
+        
+        # mqtt client
+        self.broker=broker
+        self.port = port
+        
+        # basic mqtt cb
+        self.client = mqtt.Client(client_id=f"motorManager_v2_{self.id}")
+        self.client.on_connect = self.on_connect
+        self.client.on_disconnect = self.on_disconnect
+        
+        self.topic_prefix = f'motor/{self.id}'
+        
         
     async def startManger(self):
         logger.debug("startManger")
-        self.manageState = self.ManageState.RUNNING
+        self.__managerState = self.ManageState.RUNNING
+        
         try:
-            self.pub.dial(self.addres)
-            self.sub.dial(self.addres)
-        except exceptions.ConnectionRefused as e:
-            pass
-        self.sub.subscribe(f'motor|{self.id}|angle')
-        self.sub.subscribe(f'motor|{self.id}|speed')
-        self.recv_task = asyncio.create_task(self.msg_recv_job())
+            self.client.message_callback_add(f'{self.topic_prefix}/angle', self.__on_angle_cb)
+            self.client.message_callback_add(f'{self.topic_prefix}/speed', self.__on_speed_cb)
+            self.client.message_callback_add(f'{self.topic_prefix}/proximity', self.__on_proximity_cb)
+            
+            self.client.connect_async(self.broker, self.port)
+            
+            self.client.loop_start()
+
+            await asyncio.sleep(0.1)
         
+        except Exception as e:
+            logger.error(f'Error: {e}')
+            self.__managerState = self.ManageState.STOP
+            self.client.loop_stop()
+            self.client.disconnect()
+            raise e
+    
     async def closeManager(self):
-        logger.debug("closeManager")
-        self.pub.close()
-        self.sub.close()
-        if self.recv_task and not self.recv_task.done():
-            self.recv_task.cancel()
-            try:
-                await self.recv_task
-            except asyncio.CancelledError:
-                pass
-        self.recv_task = None
+        logger.debug(f"closeManager for motor_{self.id}")
+        self.__managerState = self.ManageState.STOP
+
+        # 停止背景執行緒
+        self.client.loop_stop()
+
+        # 斷開與代理的連接
+        self.client.disconnect()
+        
+    def on_connect(self, client, userdata, flags, rc):
+        logger.debug("on_connect")
+        if rc == 0:
+            logger.debug(f"已連接到MQTT代理, 結果碼: {rc}")
+            self.client.subscribe(f'{self.topic_prefix}/angle')
+            self.client.subscribe(f'{self.topic_prefix}/speed')
+            self.client.subscribe(f'{self.topic_prefix}/proximity')
+        else:
+            logger.error(f"連接失敗，結果碼: {rc}")
+
+    def on_disconnect(self, client, userdata, rc):
+        """從MQTT代理斷開連接時的回調函數"""
+        if rc != 0:
+            logger.warning(f"意外斷開連接，結果碼: {rc}")
+        
+        # 重新連接到代理
+        if self.__managerState != self.ManageState.STOP:
+            self.client.reconnect()
+    
+    def __on_angle_cb(self, client, userdata, msg):
+        """處理角度訊息的專用回調函數"""
+        try:
+            payload = msg.payload.decode()
+            # logger.debug(f"收到角度訊息: {payload}")
+            self.motorData.pos = float(payload)
+        except Exception as e:
+            logger.error(f"處理角度訊息時出錯: {e}")
+
+    def __on_speed_cb(self, client, userdata, msg):
+        """處理速度訊息的專用回調函數"""
+        try:
+            payload = msg.payload.decode()
+            # logger.debug(f"收到速度訊息: {payload}")
+            self.motorData.vel = float(payload)
+        except Exception as e:
+            logger.error(f"處理速度訊息時出錯: {e}")
+
+    def __on_proximity_cb(self, client, userdata, msg):
+        """處理接近開關訊息的專用回調函數"""
+        try:
+            payload = msg.payload.decode()
+            logger.debug(f"收到接近開關訊息: {payload}")
+            self.__cb_proximity(payload)
+        except Exception as e:
+            logger.error(f"處理接近開關訊息時出錯: {e}")
         
         
-    def goAbsPos(self, pos:int):
+    def goAbsPos(self, pos: int):
+        """移動到絕對位置"""
         logger.debug("goAbsPos")
-        cmd = f'motor|{self.id}|goAbsPos:{pos}'
-        self.pub_send_helper(cmd)
+        self.client.publish(f"{self.topic_prefix}/cmd/goAbsPos", str(pos))
         
-    def goIncPos(self, pos:int):
+    def goIncPos(self, pos: int):
+        """移動增量位置"""
         logger.debug("goIncPos")
-        cmd = f'motor|{self.id}|goIncPos:{pos}'
-        self.pub_send_helper(cmd)
+        self.client.publish(f"{self.topic_prefix}/cmd/goIncPos", str(pos))
     
     def goHomePos(self):
+        """移動到原點位置"""
         logger.debug("goHomePos")
-        cmd = f'motor|{self.id}|goHomePos:'
-        self.pub_send_helper(cmd)
+        self.client.publish(f"{self.topic_prefix}/cmd/goHomePos", str(self.homePos))
+        # self.client.publish(f"{self.topic_prefix}/cmd/goAbsPos", str(self.homePos))
         
     def motorStop(self):
+        """停止電機"""
         logger.debug("motorStop")
-        cmd = f'motor|{self.id}|stop:'
-        self.pub_send_helper(cmd)
-        
+        self.client.publish(f"{self.topic_prefix}/cmd/stop", "")
+    
     def get_motorData(self):
+        """獲取電機數據"""
         return self.motorData
     
     def get_motorState(self):
+        """獲取電機狀態"""
         return self.motorState
         
     def get_proximitys(self):
-        fakeProximity = [False, False]
-        self.motorProximity = fakeProximity
+        """獲取接近開關狀態"""
         return self.motorProximity
     
     def is_home(self):
@@ -265,54 +331,17 @@ class MotorManager_v2():
         else:
             return False
 
-    def pub_send_helper(self, cmd:str):
-        self.pub.send(cmd.encode())
-        
-    def sub_recv_helper(self, msg:str, topic:str, callback=None):
-        if msg.startswith(topic):
-            content = msg[len(topic):]
-            if callback:
-                callback(content)
-            else:
-                logger.debug("recv msg:", content)
-    
-    def __cb_prosimity(self, content:str):
-        '''content = 00, 01, 10 , 11'''
-        self.motorProximity[0] = content[0]==1
-        self.motorProximity[1] = content[1]==1
-        
-    async def msg_recv_job(self):
-        logger.debug("msg_recv_job start")
+    def __cb_proximity(self, content: str):
+        """處理接近開關數據"""
         try:
-            while True:
-                try:
-
-                    if self.manageState == self.ManageState.STOP:
-                        break
-                    msg = await asyncio.wait_for(self.sub.arecv(), timeout=0.1) 
-                    
-                    if msg:
-                        logger.debug("get msg:", msg)
-                        msg = msg.decode()
-                        self.sub_recv_helper(msg, f'motor|{self.id}|angle',
-                                                lambda x: setattr(self.motorData, 'pos', float(x)))
-                        self.sub_recv_helper(msg, f'motor|{self.id}|speed',
-                                                    lambda x: setattr(self.motorData, 'vel', float(x)))
-                        self.sub_recv_helper(msg, f'motor|{self.id}|proximity',self.__cb_prosimity)
-                
-                except asyncio.TimeoutError:
-                    continue  # 超時後繼續檢查停止條件
-                except IOError as e:
-                    logger.error(f'[catch] => {e}')
-                    break
-                except Exception as e:
-                    logger.error(f'[catch] => {e}')
-                    break
+            # 假設內容格式為 "0,0" 或 "1,0" 等
+            values = content.strip().split(',')
+            if len(values) >= 2:
+                self.motorProximity[0] = values[0] == '1'
+                self.motorProximity[1] = values[1] == '1'
+        except Exception as e:
+            logger.error(f"處理接近開關數據時出錯: {e}")
         
-        except asyncio.CancelledError:
-            logger.debug("msg_recv_job cancelled")
-        finally:
-            logger.debug("msg_recv_job end")
 
     
     
