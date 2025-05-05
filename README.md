@@ -22,6 +22,11 @@ source .venv/bin/activate # linux
 uv run ./app.py 
 ```
 
+## 掃描結果保存
+掃描結果會保存在我們後端資料庫的 ./motorImage/ 資料夾中，檔名為 {cam_name}_{i}.jpg \
+cam_name 是拍攝相機名稱，目前為"cam1", "cam2" \
+後面的{i}為拍攝編號，第一個拍攝編號為0，第二個為1，以此類推 \
+
 
 ## websocket 設計
 目前提供三個webcoket端點 \
