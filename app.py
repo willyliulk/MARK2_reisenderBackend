@@ -921,7 +921,38 @@ def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
     """
     # TODO 補齊功能
 
-    return {'result':'top 3 result from vizuro AI'}
+    return {'result':   [
+    {
+        "directory": "VO10 Volvo BM14 Transfer",
+        "family": "ZF4HP22",
+        "index": 244,
+        "label": "vo10_volvo_bm14_transfer",
+        "make": "VOLVO",
+        "part": "torque_converter",
+        "probability": 0,
+        "subcategory": "2.3L 740 GLE"
+    },
+    {
+        "directory": "VW8 VW RE9 Transfer",
+        "family": "095, 096, 097",
+        "index": 249,
+        "label": "vw8_vw_re9_transfer",
+        "make": "VW",
+        "part": "torque_converter",
+        "probability": 0,
+        "subcategory": "2.0L Passat"
+    },
+    {
+        "directory": "Honda PYRA Transfer",
+        "family": "PYRA",
+        "index": 415,
+        "label": "honda_pyra_transfer",
+        "make": "HONDA",
+        "part": "transmission_case",
+        "probability": 0,
+        "subcategory": "14-17 ODYSSEY"
+    }
+    ]}
 
 
 #endregion 

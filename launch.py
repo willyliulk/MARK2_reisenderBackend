@@ -16,8 +16,8 @@ class ProcessManager:
         
         # 根據系統設定 MQTT Broker 指令
         if self.system == "Windows":
-            self.mqtt_cmd = ["mqttBroker\\win64\\bin\\nanomq.exe", "start", "--conf", "mqttBroker\\win64\\nanomq.conf"]
-            self.mqtt_path = "mqttBroker\\win64\\bin\\nanomq.exe"
+            self.mqtt_cmd = ["mqttBroker\\win64\\bin\\nanomq.exe", "start", "--conf", f"mqttBroker\\win64\\bin\\nanomq.conf"]
+            self.mqtt_path = "./mqttBroker\\win64\\bin\\nanomq.exe"
         else:  # Linux/Ubuntu
             self.mqtt_cmd = ["./mqttBroker/ubuntu/nanomq", "start", "--conf", "mqttBroker/ubuntu/nanomq.conf"]
             self.mqtt_path = "mqttBroker/ubuntu/nanomq"
@@ -39,20 +39,20 @@ class ProcessManager:
         if self.system != "Windows":
             self.ensure_executable(self.mqtt_path)
             
-        print("啟動 MQTT Broker...")
+        print("啟動 Broker...")
         try:
             mqtt_process = self.start_process(self.mqtt_cmd)
             self.processes.append(mqtt_process)
-            print("MQTT Broker 已啟動，等待 2 秒...")
+            print("Broker 已啟動，等待 2 秒...")
             time.sleep(2)
         except Exception as e:
-            print(f"啟動 MQTT Broker 時發生錯誤: {e}")
+            print(f"啟動 Broker 時發生錯誤: {e}")
             if self.system != "Windows":
-                print("嘗試使用 sudo 啟動 MQTT Broker...")
+                print("嘗試使用 sudo 啟動 Broker...")
                 sudo_mqtt_cmd = ["sudo"] + self.mqtt_cmd
                 mqtt_process = self.start_process(sudo_mqtt_cmd)
                 self.processes.append(mqtt_process)
-                print("MQTT Broker 已啟動，等待 2 秒...")
+                print("Broker 已啟動，等待 2 秒...")
                 time.sleep(2)
 
         print("啟動機器模擬器...")
