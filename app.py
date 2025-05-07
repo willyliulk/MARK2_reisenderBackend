@@ -25,6 +25,7 @@ from motorManager import MotorManager, MotorManager_v2
 # TODO: 單獨開一個API保存setPoint清單
 # TODO: 多開一個API POST /v2/mechine/resolve，會觸發機器自我檢測
 # TODO: 更新motor的sp清單的shema
+# TODO: 新加mechine GO_HOME state
 
 
 # ----------- Pydantic Models -----------

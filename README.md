@@ -64,7 +64,7 @@ base64 編碼圖像
 {
     emergency   :bool,
     reason      :string,
-    state       :{"IDEL", "SHOTTING", "AI_PROC", "ERROR"},
+    state       :{"IDEL", "GO_HOME", "SHOTTING", "AI_PROC", "ERROR"},
     colorLight  :{"r", "g", "y"},
     btn_on      :["shot", 'home', "EMG"]
 }
