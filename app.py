@@ -1,23 +1,26 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import requests
 import uvicorn
 from loguru import logger
 import numpy as np
 import cv2
+import pynng
 
 import sys, time, os 
 import base64, json
-# import requests
 import asyncio
 from pathlib import Path
 from enum import Enum
 from typing import List, Optional, Dict
 from contextlib import asynccontextmanager
-import pynng
+
 from utils import get_min_len_path
 from motorManager import MotorManager, MotorManager_v2
+from machineManager import MachineManager
 
 # TODO: 軟體按下 EmgStop 處理程序呼叫需要有API
 # TODO: 提供專門的API取得最近一次的拍照結果嗎?
@@ -25,6 +28,7 @@ from motorManager import MotorManager, MotorManager_v2
 # TODO: 單獨開一個API保存setPoint清單
 # TODO: 多開一個API POST /v2/mechine/resolve，會觸發機器自我檢測
 # TODO: 更新motor的sp清單的shema
+# TODO: 新加sp multi 的處裡
 # TODO: 新加mechine GO_HOME state
 
 
@@ -47,8 +51,8 @@ class ResourceManager:
     def __init__(self, motor_port: str, camera_configs: List[dict]):
         self.motor:MotorManager = MotorManager(motor_port)
         self.motorV2_list = [
-            MotorManager_v2(0, 15),
-            MotorManager_v2(1, 345)
+            MotorManager_v2(0, 20),
+            MotorManager_v2(1, 360-20)
         ]
         self.dataStop = False
         self.cameras_list = {}
@@ -80,6 +84,7 @@ class ResourceManager:
         
         # TODO:更新mechine manager
         self.machineGood = True
+        self.machineManager = MachineManager(self.motorV2_list, self.cameras_list)
 
         
     
@@ -88,17 +93,18 @@ class ResourceManager:
         # 初始化全部 MotorManager_v2
         try:
             for motor_v2 in self.motorV2_list:
-                await motor_v2.startManger()
-        except Exception as e:
-            pass
+                await motor_v2.startManager()
+            await self.machineManager.startManager()
         except pynng.exceptions.ConnectionRefused as e:
+            pass
+        except Exception as e:
             pass
 
     async def cleanup(self):
         self.motor.closeManager()
+        await self.machineManager.closeManager()
         for motor_v2 in self.motorV2_list:
             await motor_v2.closeManager()
-            
         # 釋放攝影機資源
         for cap in self.cameras_list.values():
             cap.release()
@@ -148,6 +154,18 @@ app.mount("/js"     , StaticFiles(directory="./html/js"))
 app.mount("/css"    , StaticFiles(directory="./html/css"))
 app.mount("/numPic" , StaticFiles(directory="./html/numPic"))
 app.mount("/pics"   , StaticFiles(directory="./html/pics"))
+
+origins = [
+    "http://localhost",
+    "http://localhost:8080",
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ----------- 依賴注入 -----------
 def get_resources(request: Request) -> ResourceManager:
@@ -208,7 +226,7 @@ async def ws_cam1(websocket: WebSocket):
     try:
         while True:
             async with lock_cap1:
-                ret, frame = cap1.read()
+                ret, frame = cap1.read() # type: ignore
             
             if not ret:
                 break
@@ -232,7 +250,7 @@ async def ws_cam1(websocket: WebSocket):
         
     finally:
         pass
-        cap1.release()
+        cap1.release() # type: ignore
         lock_cap1.release()
         await websocket.close()
 
@@ -250,7 +268,7 @@ async def ws_cam2(websocket: WebSocket):
         while True:
             async with lock_cap2:
                 # logger.info('cam2 say hi')
-                ret, frame = cap2.read()
+                ret, frame = cap2.read() # type: ignore
             
             if not ret:
                 break
@@ -274,7 +292,7 @@ async def ws_cam2(websocket: WebSocket):
         logger.debug(f"連接中斷： {e}")
         
     finally:
-        cap2.release()
+        cap2.release() # type: ignore
         lock_cap2.release()
         await websocket.close()
 
@@ -284,21 +302,21 @@ async def ws_cam2(websocket: WebSocket):
 def motor_move_stop():
     global motorManager
     logger.debug('motor move stop')
-    motorManager.motorStop()
+    motorManager.motorStop() # type: ignore
     return "OK"
 
 @app.get('/motor/move/inc/{value}', deprecated=True)
 def motor_move_inc(value:int):
     global motorManager
     logger.debug(f'motor move inc {value}')
-    motorManager.goIncPos(value)
+    motorManager.goIncPos(value) # type: ignore
     return "OK"
 
 @app.get('/motor/move/abs/{value}', deprecated=True)
 def motor_move_abs(value:int):
     global motorManager
     logger.debug(f'motor move abs {value}')
-    motorManager.goAbsPos(value)
+    motorManager.goAbsPos(value) # type: ignore
     return "OK"
 
 @app.post('/motor/move/sp', deprecated=True)
@@ -308,7 +326,7 @@ async def motor_move_sp(req: MotorSetPointReq,
     logger.debug(f'motor move sp: {req.pos_list}')
     # motorManager.
     for target_pos in req.pos_list:
-        resources.motor.goAbsPos(target_pos)
+        resources.motor.goAbsPos(target_pos) # type: ignore
         start = time.time()
 
         # 等待運行到目標點
@@ -362,7 +380,7 @@ async def cam_shot(listSP: List[int]):
             listSP = json.load(f)
     
     # plan new optimal path
-    curPos = motorManager.getMotorData().pos
+    curPos = motorManager.getMotorData().pos # type: ignore
     disList = [abs(curPos - sp) for sp in listSP]
     minDis = min(disList)
     minDisIndex = disList.index(minDis)
@@ -370,13 +388,13 @@ async def cam_shot(listSP: List[int]):
     minLen_SpList, _  = get_min_len_path(listSP, minDisIndex)
             
     # apply the path
-    listSP_new = [listSP[i] for i in minLen_SpList]
+    listSP_new = [listSP[i] for i in minLen_SpList] # type: ignore
 
-    for i in range(0, len(minLen_SpList)):
-        motorManager.goAbsPos(listSP_new[i])
+    for i in range(0, len(minLen_SpList)): # type: ignore
+        motorManager.goAbsPos(listSP_new[i]) # type: ignore
     
         start_time = time.time()
-        while abs(motorManager.getMotorData().pos - listSP_new[i]) > 5:
+        while abs(motorManager.getMotorData().pos - listSP_new[i]) > 5: # type: ignore
             if dataStop == True:
                 print("STOP in app")
                 dataStop=False
@@ -390,8 +408,8 @@ async def cam_shot(listSP: List[int]):
         # 使用所有鎖同時擷取圖像
         async with lock_cap1, lock_cap2:
             cameras = [
-                (cap1, "cam1"),
-                (cap2, "cam2"),
+                (cap1, "cam1"), # type: ignore
+                (cap2, "cam2"), # type: ignore
             ]
             
             for cap, cam_name in cameras:
@@ -550,11 +568,13 @@ def v2_get_machine_error_log(resources: ResourceManager = Depends(get_resources)
 @app.post('/v2/machine/raise_error')
 def v2_post_machine_raise_error(resources: ResourceManager = Depends(get_resources)):
     resources.machineGood = False
+    resources.machineManager.raise_error()
     return {'error':'Error raised by user.'}
 
 @app.post('/v2/machine/resolve')
 def v2_post_machine_resolve(resources: ResourceManager = Depends(get_resources)):
     resources.machineGood = True
+    resources.machineManager.resolve_error()
     return {'statue':'ok'}
 
 @app.get('/v2/motor/{id}/data')
@@ -639,7 +659,7 @@ def get_machien_state(resources: ResourceManager):
 def get_machine_btn(resources: ResourceManager) -> list[str]:
     # 可能包含 ["shot", 'home', "EMG"]
     # TODO 補齊功能
-    return []
+    return resources.machineManager.get_btn_list()
     
 @app.websocket('/v2/ws/machine')
 async def v2_ws_machine(websocket:WebSocket):
@@ -725,7 +745,7 @@ async def wait_motor_move_to_pos(motor:MotorManager_v2, motor_id: int, target_po
             
         await asyncio.sleep(0.01)
         
-async def capture_images(resources: ResourceManager, position_index: int) -> dict:
+async def capture_images(resources: ResourceManager, position_index: str) -> dict:
     """擷取兩個相機的圖片並返回編碼後的數據"""
     image_data = {}
     
@@ -832,7 +852,7 @@ async def v2_motors_move_sp(spReq: MotorSetPointReq,
         # 保存設定點位置
         if spReq.pos_list:
             with open('SPconfig.json', 'w') as f:
-                json.dump(spReq, f)
+                json.dump(spReq.model_dump_json(), f)
             logger.info(f"Saved SPconfig.json: {spReq.pos_list}")
             
         return JSONResponse(content=image_results)
@@ -962,7 +982,7 @@ def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
 if __name__ == "__main__":
     logger.remove()
     # 子模塊也都只顯示info leve; 訊息
-    logger.add(sys.stdout, level="INFO")
+    logger.add(sys.stdout, level="DEBUG")
     logger.add("log/app.log", level="INFO", rotation="10 MB", compression="zip")
     logger.configure(handlers=[{"sink": sys.stderr, "level": "INFO"}])
     print('hello')

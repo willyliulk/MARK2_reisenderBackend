@@ -182,13 +182,15 @@ class MotorManager_v2():
     class MotorState(Enum):
         IDEL = 0
         RUNNING = 1
-        ERROR = 2
+        HOMEING = 2
+        ERROR = 3
+        
 
     
     @dataclass
     class MotorData:
-        pos:int = 0
-        vel:int = 0
+        pos:float = 0.0
+        vel:float = 0.0
         
     def __init__(self, id=0, homePos=0, broker='localhost', port=11883):
         '''ID由1開始'''
@@ -212,7 +214,7 @@ class MotorManager_v2():
         self.topic_prefix = f'motor/{self.id}'
         
         
-    async def startManger(self):
+    async def startManager(self):
         logger.debug("startManger")
         self.__managerState = self.ManageState.RUNNING
         
@@ -224,7 +226,8 @@ class MotorManager_v2():
             self.client.connect_async(self.broker, self.port)
             
             self.client.loop_start()
-
+            
+            self.taskHandel_monitor = asyncio.create_task(self.task_monitor_State())
             await asyncio.sleep(0.1)
         
         except Exception as e:
@@ -232,12 +235,18 @@ class MotorManager_v2():
             self.__managerState = self.ManageState.STOP
             self.client.loop_stop()
             self.client.disconnect()
+            if self.taskHandel_monitor is not None:
+                self.taskHandel_monitor.cancel()
+                self.taskHandel_monitor = None
             raise e
     
     async def closeManager(self):
         logger.debug(f"closeManager for motor_{self.id}")
         self.__managerState = self.ManageState.STOP
-
+        if self.taskHandel_monitor is not None:
+            self.taskHandel_monitor.cancel()
+            self.taskHandel_monitor = None
+        
         # 停止背景執行緒
         self.client.loop_stop()
 
@@ -291,33 +300,52 @@ class MotorManager_v2():
             logger.error(f"處理接近開關訊息時出錯: {e}")
         
         
-    def goAbsPos(self, pos: int):
+    def goAbsPos(self, pos: float):
         """移動到絕對位置"""
         logger.debug("goAbsPos")
+        if self.motorState == self.MotorState.ERROR:
+            return
+        self.motorState = self.MotorState.RUNNING
         self.client.publish(f"{self.topic_prefix}/cmd/goAbsPos", str(pos))
         
-    def goIncPos(self, pos: int):
+    def goIncPos(self, pos: float):
         """移動增量位置"""
         logger.debug("goIncPos")
+        if self.motorState == self.MotorState.ERROR:
+            return
+        self.motorState = self.MotorState.RUNNING
         self.client.publish(f"{self.topic_prefix}/cmd/goIncPos", str(pos))
     
     def goHomePos(self):
         """移動到原點位置"""
         logger.debug("goHomePos")
+        if self.motorState == self.MotorState.ERROR:
+            return
+        self.motorState = self.MotorState.HOMEING
         self.client.publish(f"{self.topic_prefix}/cmd/goHomePos", str(self.homePos))
         # self.client.publish(f"{self.topic_prefix}/cmd/goAbsPos", str(self.homePos))
         
     def motorStop(self):
         """停止電機"""
         logger.debug("motorStop")
+        if self.motorState == self.MotorState.ERROR:
+            return
+        self.motorState = self.MotorState.IDEL
         self.client.publish(f"{self.topic_prefix}/cmd/stop", "")
+    
+    def resolve(self):
+        """解決電機問題"""
+        logger.debug("resolve")
+        if self.motorState == self.MotorState.ERROR:
+            self.motorState = self.MotorState.IDEL
+            self.client.publish(f"{self.topic_prefix}/cmd/resolve", "")
     
     def get_motorData(self):
         """獲取電機數據"""
         return self.motorData
     
     def get_motorState(self):
-        """獲取電機狀態"""
+        """獲取電機狀態"""            
         return self.motorState
         
     def get_proximitys(self):
@@ -342,8 +370,37 @@ class MotorManager_v2():
         except Exception as e:
             logger.error(f"處理接近開關數據時出錯: {e}")
         
+    async def task_monitor_State(self):
+        """監控電機狀態"""
+        logger.debug("task_monitor_State")
+        while True:
+            if self.__managerState == self.ManageState.STOP:
+                break
+            
+            elif self.motorState == self.MotorState.ERROR:
+                self.motorStop()
+                if self.is_home():
+                    self.motorState = self.MotorState.IDEL
+                
+            elif self.motorState == self.MotorState.HOMEING:
+                if self.is_home():
+                    self.motorState = self.MotorState.IDEL
+                    self.motorStop()
+                    
+            elif self.motorState == self.MotorState.RUNNING:
+                if self.motorProximity[0] or self.motorProximity[1]:
+                    self.motorState = self.MotorState.ERROR
+                    self.motorStop()
+                elif self.motorData.vel == 0:
+                    self.motorState = self.MotorState.IDEL
+                    
+            elif self.motorState == self.MotorState.IDEL:
+                if self.motorData.vel != 0:
+                    self.motorState = self.MotorState.RUNNING
 
-    
+            await asyncio.sleep(0.1)
+        
+
     
         
         

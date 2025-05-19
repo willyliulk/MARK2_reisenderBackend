@@ -1,1 +1,1 @@
-{"pos_list": [0.0], "pos_list_multiMotor": {"motor0": [10.0, 20.55, 30.0], "motor1": [100.0, 90.0, 80.23]}, "sp_type": "single"}
+"{\"pos_list\":[30.0,45.0,180.0,270.0,300.0],\"pos_list_multiMotor\":{\"motor0\":[10.0,20.55,30.0],\"motor1\":[100.0,90.0,80.23]},\"sp_type\":\"single\"}"
