@@ -1,178 +1,4 @@
 
-# from motorModbus import MyModbus as MyMotorController
-# from motorNewController import MotorController as MyMotorController
-from motorController_Fake import FakeMotorController as MyMotorController
-from singleton_decorator import singleton
-import time
-from threading import Thread
-from enum import Enum
-from dataclasses import dataclass
-from loguru import logger
-import os, asyncio
-import signal
-import httpx
-from pynng import Pub0, Sub0, exceptions
-import paho.mqtt.client as mqtt
-import json
-import sys
-
-class Singleton(type):
-    _instances = {}
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
-        return cls._instances[cls]
-
-class MotorManager():    
-    __metaclass__ = Singleton    
-    ManagerRequest = Enum('ManagerRequest', [
-        'FINISH',
-        'NORMAL',
-        'MOVE_ABS',
-        'MOVE_INC',
-        'STOP',
-        'RECONNECT',
-        'HANDLE_ERROR',
-    ], start=0)
-    
-    tries = 10
-    
-    @dataclass
-    class MotorData:
-        pos:int = 0
-        vel:int = 0
-        
-    def motorJob(self):
-        logger.debug("job start")
-        logger.debug("Job Threead PID: " + str(os.getpid()))
-        while not self.kill:
-            try:
-                for i in range(self.tries):
-                    try:
-                        self.modbusMotor.connect(self.port, 500000)
-                        time.sleep(0.01)
-                        self.modbusMotor.getPos()
-                        self.modbusMotor.clearError()
-                    except Exception as e:
-                        logger.error(f"[get error] {e} trying #{i}")
-                        continue
-                    finally:
-                        break     
-                while (self.managerReq != self.ManagerRequest.FINISH) and (not self.kill):
-                    if self.managerReq == self.ManagerRequest.NORMAL:
-                        self.motorData.pos = self.modbusMotor.getPos()
-                        self.motorData.vel = self.modbusMotor.getVel()
-                        self.btnData = self.modbusMotor.checkButton()
-                        if self.btnData[0] == 1 and self.preBtnData[0] == 0:
-                            pass
-                        if self.btnData[1] == 1 and self.preBtnData[1] == 0:
-                            pass
-                        
-                        motorErr = self.modbusMotor.checkError()
-                        self.preBtnData = self.btnData
-                        if motorErr != 0:
-                            logger.debug("Motor Error: Location out of tolerance")
-                            self.paraPasser = motorErr
-                            self.managerReq = self.ManagerRequest.HANDLE_ERROR
-                        time.sleep(0.05)
-                    
-                    elif self.managerReq == self.ManagerRequest.MOVE_ABS:
-                        logger.debug('motorJob', "MOVE_ABS")
-                        self.modbusMotor.moveAbsPos(self.paraPasser)
-                        time.sleep(0.1)
-                        self.managerReq = self.ManagerRequest.NORMAL
-                        
-                    elif self.managerReq == self.ManagerRequest.MOVE_INC:
-                        logger.debug('motorJob', "MOVE_INC")
-                        self.modbusMotor.moveIncPos(self.paraPasser)
-                        time.sleep(0.1)
-                        self.managerReq = self.ManagerRequest.NORMAL
-                        
-                    elif self.managerReq == self.ManagerRequest.STOP:
-                        logger.debug('motorJob', "STOP")
-                        self.modbusMotor.setStop()
-                        time.sleep(0.1)
-                        self.managerReq = self.ManagerRequest.NORMAL
-                        
-                    elif self.managerReq == self.ManagerRequest.RECONNECT:
-                        logger.debug('motorJob', "RECONNECT")
-                        self.modbusMotor.connect(self.paraPasser, 500000)
-                        time.sleep(0.1)
-                        self.managerReq = self.ManagerRequest.NORMAL
-                        
-                    elif self.managerReq == self.ManagerRequest.HANDLE_ERROR:
-                        logger.debug('motorJob', "HANDLE_ERROR: ", end='')
-                        if self.paraPasser == 6:
-                            logger.debug('Location out of tolerance : deal with clear error')
-                            self.modbusMotor.clearError()
-                        time.sleep(0.1)
-                        self.managerReq = self.ManagerRequest.NORMAL
-            except IOError as e:
-                logger.error(f'[catch] => {e}')
-                
-            except Exception as e:
-                self.modbusMotor.disconnect()
-                logger.debug('job thread finish')
-                self.kill = True
-            finally: 
-                self.modbusMotor.disconnect()
-                logger.debug('job thread finish')
-                break
-        
-        
-    def __init__(self, port, baud=115200):
-        self.managerReq = self.ManagerRequest.NORMAL
-        self.paraPasser = 0
-        self.port = port
-        self.baud = baud
-        self.kill = False
-        
-        self.modbusMotor = MyMotorController(port, baud)
-        self.motorData = self.MotorData()
-        self.jobThreead = Thread(target=self.motorJob)
-        self.jobThreead.start()
-        
-        # signal.signal(signal.SIGINT, self.exit_gracefully)
-        # signal.signal(signal.SIGTERM, self.exit_gracefully)
-        # signal.signal(signal.SIGKILL, self.exit_gracefully)
-
-    def exit_gracefully(self, signum, frame):
-        self.modbusMotor.disconnect()
-        logger.debug('job thread finish')
-        self.kill = True
-
-    
-    def goAbsPos(self, pos:int):
-        self.paraPasser = pos
-        self.managerReq = self.ManagerRequest.MOVE_ABS
-    
-    def goIncPos(self, pos:int):
-        self.paraPasser = pos
-        self.managerReq = self.ManagerRequest.MOVE_INC
-        
-    def motorStop(self):
-        self.managerReq = self.ManagerRequest.STOP
-    
-    def getMotorData(self):
-        '''        @dataclass
-        MotorData:
-        pos:int = 0
-        vel:int = 0'''
-        # logger.debug("getMotorData")
-        return self.motorData
-    
-    def getMotorButton(self):
-        ''' return a list of button state [stop, operate] '''
-        return self.btnData
-
-    
-    def closeManager(self):
-        self.managerReq = self.ManagerRequest.FINISH
-        self.kill = True
-        self.jobThreead.join()
-        logger.debug("job end")
-
- 
 class MotorManager_v2():
     # __metaclass__ = Singleton    
     class ManageState(Enum):
@@ -304,7 +130,6 @@ class MotorManager_v2():
         """移動到絕對位置"""
         logger.debug("goAbsPos")
         if self.motorState == self.MotorState.ERROR:
-            print('error')
             return
         self.motorState = self.MotorState.RUNNING
         self.client.publish(f"{self.topic_prefix}/cmd/goAbsPos", str(pos))
@@ -323,8 +148,8 @@ class MotorManager_v2():
         if self.motorState == self.MotorState.ERROR:
             return
         self.motorState = self.MotorState.HOMEING
-        # self.client.publish(f"{self.topic_prefix}/cmd/goHomePos", str(self.homePos))
-        self.client.publish(f"{self.topic_prefix}/cmd/goAbsPos", str(self.homePos))
+        self.client.publish(f"{self.topic_prefix}/cmd/goHomePos", str(self.homePos))
+        # self.client.publish(f"{self.topic_prefix}/cmd/goAbsPos", str(self.homePos))
         
     def motorStop(self):
         """停止電機"""
@@ -339,8 +164,7 @@ class MotorManager_v2():
         logger.debug("resolve")
         if self.motorState == self.MotorState.ERROR:
             self.motorState = self.MotorState.IDEL
-            # self.client.publish(f"{self.topic_prefix}/cmd/resolve", "")
-            self.client.publish(f"{self.topic_prefix}/cmd/goHomePos", str(self.homePos))
+            self.client.publish(f"{self.topic_prefix}/cmd/resolve", "")
     
     def get_motorData(self):
         """獲取電機數據"""
@@ -399,36 +223,9 @@ class MotorManager_v2():
             elif self.motorState == self.MotorState.IDEL:
                 if self.motorData.vel != 0:
                     self.motorState = self.MotorState.RUNNING
-                if any(self.get_proximitys()):
-                    self.motorState = self.MotorState.ERROR
 
             await asyncio.sleep(0.1)
         
 
     
-        
-        
-               
-if __name__ == "__main__":
-    motorManager = MotorManager('/dev/ttyUSB3', 500000)
-    
-    a=0
-    a+=1
-    logger.debug(a) #1
-    time.sleep(5)
-    motorManager.goAbsPos(1000)
-    a+=1
-    logger.debug(a) #2
-    time.sleep(5)
-    motorManager.goAbsPos(-1000)
-    a+=1
-    logger.debug(a) #3
-    time.sleep(5)
-    ac = motorManager.getMotorData()
-    print(ac.pos)
-    print(ac.vel)
-    a+=1
-    logger.debug(a) #4
-    time.sleep(5)
-
-    motorManager.closeManager()
+ 

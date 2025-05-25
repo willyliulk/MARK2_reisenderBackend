@@ -224,9 +224,12 @@ class MachineManager:
         return self.__reason
             
     
-    def resolve_error(self):
+    async def resolve_error(self):
         print("resolving")
-        self.__client.publish("machine/resolve", "")
+        # self.__client.publish("machine/resolve", "")
+        self.__MotorManager_list[0].resolve()
+        
+        self.__MotorManager_list[1].resolve()
         
     def raise_error(self):
         print("raising")

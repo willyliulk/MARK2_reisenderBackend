@@ -1,3 +1,4 @@
+import traceback
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -51,8 +52,8 @@ class ResourceManager:
     def __init__(self, motor_port: str, camera_configs: List[dict]):
         self.motor:MotorManager = MotorManager(motor_port)
         self.motorV2_list = [
-            MotorManager_v2(0, 20),
-            MotorManager_v2(1, 360-20)
+            MotorManager_v2(0, 30),
+            MotorManager_v2(1, 360-30)
         ]
         self.dataStop = False
         self.cameras_list = {}
@@ -566,15 +567,15 @@ def v2_get_machine_error_log(resources: ResourceManager = Depends(get_resources)
     return {'error_log':"randomPlaceholder"}
 
 @app.post('/v2/machine/raise_error')
-def v2_post_machine_raise_error(resources: ResourceManager = Depends(get_resources)):
+async def v2_post_machine_raise_error(resources: ResourceManager = Depends(get_resources)):
     resources.machineGood = False
     resources.machineManager.raise_error()
     return {'error':'Error raised by user.'}
 
 @app.post('/v2/machine/resolve')
-def v2_post_machine_resolve(resources: ResourceManager = Depends(get_resources)):
+async def v2_post_machine_resolve(resources: ResourceManager = Depends(get_resources)):
     resources.machineGood = True
-    resources.machineManager.resolve_error()
+    await resources.machineManager.resolve_error()
     return {'statue':'ok'}
 
 @app.get('/v2/motor/{id}/data')
@@ -733,7 +734,7 @@ async def wait_motor_move_to_pos(motor:MotorManager_v2, motor_id: int, target_po
             break
         
         # 處理執行超時
-        if time.time() - start > 5:
+        if time.time() - start > 8:
             logger.error(f"Motor {motor_id} move to pos {target_pos} timeout, now at {motor_pos}")
             raise HTTPException(status_code=408, detail=f"Motor move timeout to target: {target_pos}")
         
@@ -745,34 +746,33 @@ async def wait_motor_move_to_pos(motor:MotorManager_v2, motor_id: int, target_po
             
         await asyncio.sleep(0.01)
         
-async def capture_images(resources: ResourceManager, position_index: str) -> dict:
+async def capture_images(resources: ResourceManager, cam_name:str, position_index: str) -> dict|None:
     """擷取兩個相機的圖片並返回編碼後的數據"""
-    image_data = {}
+    image_data = None
     
     # 確保圖片保存目錄存在
     save_dir = "motorImage"
     os.makedirs(save_dir, exist_ok=True)
 
-    for cam_name, cap in resources.cameras_list.items():
-        async with resources.locks[cam_name]:
-            ret, frame = cap.read()
-            if not ret:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                continue
-                
-            # 保存原始圖片
-            save_path = f'{save_dir}/{cam_name}_{position_index}.jpg'
-            cv2.imwrite(save_path, frame)
+    cap = resources.cameras_list[cam_name]
+    async with resources.locks[cam_name]:
+        ret, frame = cap.read()
+        if not ret:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             
-            # 編碼圖片用於網頁傳輸
-            ret, buffer = cv2.imencode('.jpg', frame)
-            if ret:
-                jpegb64 = base64.b64encode(buffer).decode('utf-8')
-                image_data[cam_name] = jpegb64
+        # 保存原始圖片
+        save_path = f'{save_dir}/{cam_name}_{position_index}.jpg'
+        cv2.imwrite(save_path, frame)
+        
+        # 編碼圖片用於網頁傳輸
+        ret, buffer = cv2.imencode('.jpg', frame)
+        if ret:
+            jpegb64 = base64.b64encode(buffer).decode('utf-8')
+            image_data = {cam_name:jpegb64}
 
     return image_data
 
-async def handle_single_motor_sequence(resources: ResourceManager, motor_id: int,
+async def handle_single_motor_sequence(resources: ResourceManager, motor_id: int, cam_name:str,
                                        positions: List[float], to_reverse = False, 
                                        to_shot: bool = False) -> List[dict]:
     """處理單個馬達的移動和拍照序列"""
@@ -793,7 +793,7 @@ async def handle_single_motor_sequence(resources: ResourceManager, motor_id: int
         
         # 如果需要拍照
         if to_shot:
-            images = await capture_images(resources, f"{motor_id}_{target_pos}")
+            images = await capture_images(resources, cam_name, f"{motor_id}_{target_pos}")
             image_results.append(images)
     
     motor.goHomePos()
@@ -814,8 +814,8 @@ async def sp_move_helper(resources: ResourceManager, sp_list: List[float], to_sh
     
     # 等待兩個任務完成並獲取結果
     results1, results2 = await asyncio.gather(
-        handle_single_motor_sequence(resources, 0, sp_queue, False, to_shot), 
-        handle_single_motor_sequence(resources, 1, sp_queue, True , to_shot)
+        handle_single_motor_sequence(resources, 0, 'cam0', sp_queue, False, to_shot), 
+        handle_single_motor_sequence(resources, 1, 'cam1', sp_queue, True , to_shot)
     )
     
     if not to_shot:
@@ -823,8 +823,8 @@ async def sp_move_helper(resources: ResourceManager, sp_list: List[float], to_sh
     
     # 如果有拍照，整理照片結果
     image_results = {
-        "cam1": [],
-        "cam2": []
+        "cam0": [],
+        "cam1": []
     }
     
     # 合併兩個馬達的結果
@@ -840,11 +840,11 @@ async def v2_motors_move_sp(spReq: MotorSetPointReq,
     """處理多點移動請求並返回拍攝的圖片"""
     try:
         # 清理舊檔案
-        save_dir = "motorImage"
-        if os.path.exists(save_dir):
-            for file in os.listdir(save_dir):
-                os.remove(os.path.join(save_dir, file))
-        os.makedirs(save_dir, exist_ok=True)
+        # save_dir = "motorImage"
+        # if os.path.exists(save_dir):
+        #     for file in os.listdir(save_dir):
+        #         os.remove(os.path.join(save_dir, file))
+        # os.makedirs(save_dir, exist_ok=True)
         
         # 執行移動和拍照
         image_results = await sp_move_helper(resources, spReq.pos_list, to_shot=False)
@@ -874,21 +874,21 @@ async def v2_motors_spSim(spReq: MotorSetPointReq,
 
 # 新增一個拍照的端點
 @app.post('/v2/cam/shot', description="目前暫時回傳固定測試資料")
-async def v2_cam_shot(shotReq: MotorSetPointReq,
+async def v2_cam_shot(spReq: MotorSetPointReq,
                         resources: ResourceManager = Depends(get_resources)):
     """執行拍照序列"""
     # test data
-    with open("./tools/testImgData.json") as f:
-        json_data = json.load(f)
+    # with open("./tools/testImgData.json") as f:
+    #     json_data = json.load(f)
     
-    with open('SPconfig.json', 'w') as f:
-        momdelJson = shotReq.model_dump_json()
-        momdelJson = json.loads(momdelJson)
-        json.dump(momdelJson, f)
-        logger.info(f"Saved SPconfig.json: {shotReq.pos_list}")
+    # with open('SPconfig.json', 'w') as f:
+    #     momdelJson = shotReq.model_dump_json()
+    #     momdelJson = json.loads(momdelJson)
+    #     json.dump(momdelJson, f)
+    #     logger.info(f"Saved SPconfig.json: {shotReq.pos_list}")
 
     
-    return json_data
+    # return json_data
     
     try:
         # 清理舊檔案
@@ -898,21 +898,27 @@ async def v2_cam_shot(shotReq: MotorSetPointReq,
                 os.remove(os.path.join(save_dir, file))
         os.makedirs(save_dir, exist_ok=True)
         
-        # 執行移動並拍照
-        image_results = await sp_move_helper(resources, shotReq.pos_list, to_shot=True)
-        
+        # 執行移動和拍照
+        image_results = await sp_move_helper(resources, spReq.pos_list, to_shot=True)
         
         # 保存設定點位置
-        if shotReq.pos_list:
+        if spReq.pos_list:
             with open('SPconfig.json', 'w') as f:
-                json.dump(shotReq.pos_list, f)
+                json.dump(spReq.model_dump_json(), f)
             logger.info(f"Saved SPconfig.json: {spReq.pos_list}")
             
         return JSONResponse(content=image_results)
         
     except Exception as e:
-        logger.error(f"Error in v2_motors_shot: {str(e)}")
+        logger.error(f"Error in v2_cam_shot: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        
         raise HTTPException(status_code=500, detail=str(e))
+        
+        logger.error(f"Error in v2_cam_shot: {str(e)}")
+        
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.get('/v2/motor/spInit')

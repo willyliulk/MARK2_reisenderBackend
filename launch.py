@@ -55,11 +55,11 @@ class ProcessManager:
                 print("Broker 已啟動，等待 2 秒...")
                 time.sleep(2)
 
-        print("啟動機器模擬器...")
-        simulator_process = self.start_process(self.machine_simulator_cmd)
-        self.processes.append(simulator_process)
-        print("機器模擬器已啟動，等待 2 秒...")
-        time.sleep(2)
+        # print("啟動機器模擬器...")
+        # simulator_process = self.start_process(self.machine_simulator_cmd)
+        # self.processes.append(simulator_process)
+        # print("機器模擬器已啟動，等待 2 秒...")
+        # time.sleep(2)
 
         print("啟動應用程式...")
         app_process = self.start_process(self.app_cmd)
