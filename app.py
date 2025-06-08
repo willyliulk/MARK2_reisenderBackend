@@ -52,8 +52,8 @@ class ResourceManager:
     def __init__(self, motor_port: str, camera_configs: List[dict]):
         self.motor:MotorManager = MotorManager(motor_port)
         self.motorV2_list = [
-            MotorManager_v2(0, 30),
-            MotorManager_v2(1, 360-30)
+            MotorManager_v2(0, 35),
+            MotorManager_v2(1, 360-35)
         ]
         self.dataStop = False
         self.cameras_list = {}
@@ -158,7 +158,7 @@ app.mount("/pics"   , StaticFiles(directory="./html/pics"))
 
 origins = [
     "http://localhost",
-    "http://localhost:8080",
+    "http://localhost:8800",
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -575,7 +575,7 @@ async def v2_post_machine_raise_error(resources: ResourceManager = Depends(get_r
 @app.post('/v2/machine/resolve')
 async def v2_post_machine_resolve(resources: ResourceManager = Depends(get_resources)):
     resources.machineGood = True
-    await resources.machineManager.resolve_error()
+    resources.machineManager.resolve_error()
     return {'statue':'ok'}
 
 @app.get('/v2/motor/{id}/data')
@@ -700,6 +700,8 @@ def v2_motor_move_abs(id:int, moveAbsReq:MotorMoveAbsReq,
                    resources: ResourceManager = Depends(get_resources)):
     if id >= len(resources.motorV2_list):
         return JSONResponse(status_code=404, content={"error": "Motor not found"})
+    if moveAbsReq.pos < resources.motorV2_list[0].homePos or moveAbsReq.pos > resources.motorV2_list[1].homePos:
+        return JSONResponse(status_code=400, content={"error": "Invalid position"})
     motor = resources.motorV2_list[id]
     pos = moveAbsReq.pos
     motor.goAbsPos(pos)
@@ -721,12 +723,13 @@ def v2_motor_move_inc(id:int, moveIncReq:MotorMoveIncReq,
     motor.goIncPos(pos)
     return {"status": "OK"}
     
-async def wait_motor_move_to_pos(motor:MotorManager_v2, motor_id: int, target_pos: float):
+async def wait_motor_move_to_pos(motor:MotorManager_v2, motor_id: int, target_pos: float, res: ResourceManager):
     start = time.time()
     while True:
         motor_pos = motor.get_motorData().pos
         motor_proximity = motor.get_proximitys()
         motor_stop = any(motor_proximity) or motor.motorState==MotorManager_v2.MotorState.ERROR
+        mechineStop = res.machineManager.is_emergency()
 
         # 抵達目標點或被停止
         if abs(motor_pos - target_pos) <= 5:
@@ -742,7 +745,13 @@ async def wait_motor_move_to_pos(motor:MotorManager_v2, motor_id: int, target_po
         if motor_stop:
             print("STOP in app")
             # motor_stop = False
-            raise Exception("STOP")
+            raise Exception("STOP: motor_stop")
+        
+        if mechineStop:
+            print("STOP in app")
+            # mechineStop = False
+            motor.motorStop()
+            raise Exception("STOP: mechineStop")
             
         await asyncio.sleep(0.01)
         
@@ -788,13 +797,14 @@ async def handle_single_motor_sequence(resources: ResourceManager, motor_id: int
         
         # 移動到指定位置
         motor.goAbsPos(target_pos)
-        await wait_motor_move_to_pos(motor, motor_id, target_pos)
+        await wait_motor_move_to_pos(motor, motor_id, target_pos, resources)
         await asyncio.sleep(0.5)  # 穩定等待
         
         # 如果需要拍照
         if to_shot:
             images = await capture_images(resources, cam_name, f"{motor_id}_{target_pos}")
             image_results.append(images)
+            
     
     motor.goHomePos()
     

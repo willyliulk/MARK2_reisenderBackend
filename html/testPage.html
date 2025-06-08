@@ -5,9 +5,10 @@
 </head>
 <body>
     <img id="imageDisplay" />
+    <img id="imageDisplay2" />
 
     <script>
-        const ws = new WebSocket('ws://localhost:8800/v2/ws/cam/1'); // Replace with your WebSocket server URL
+        const ws = new WebSocket('ws://marktwo.local:8800/v2/ws/cam/0'); // Replace with your WebSocket server URL
         const imageElement = document.getElementById('imageDisplay');
 
         ws.onmessage = function(event) {
@@ -23,6 +24,25 @@
         };
 
         ws.onclose = function() {
+            console.log('WebSocket connection closed');
+        };
+
+        const ws2 = new WebSocket('ws://marktwo.local:8800/v2/ws/cam/1'); // Replace with your WebSocket server URL
+        const imageElement2 = document.getElementById('imageDisplay2');
+
+        ws2.onmessage = function(event) {
+            // Assuming the received data is base64 encoded image
+            const base64Image = event.data;
+            
+            // Set the image source with the base64 data
+            imageElement2.src = 'data:image/jpeg;base64,' + base64Image;
+        };
+
+        ws2.onerror = function(error) {
+            console.error('WebSocket Error:', error);
+        };
+
+        ws2.onclose = function() {
             console.log('WebSocket connection closed');
         };
     </script>

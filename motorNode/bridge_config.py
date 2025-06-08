@@ -26,7 +26,7 @@ MOTOR_CONFIGS = [
     {
         "mqtt_id": 0,
         "lower_idx": 1,  # Corresponds to m1/..., stepper1 on Arduino
-        "steps_per_degree": -34.444, # EXAMPLE VALUE - REPLACE
+        "steps_per_degree": -4.444, # EXAMPLE VALUE - REPLACE
         "home_pos_steps": 0, # Step count considered as "home" on the lower computer after 'home' cmd
                            # This is usually 0 for AccelStepper's home command.
         "limit_switches_indices": [1, None] # [LIM_SW_1 maps to proximity[0], LIM_SW_2 maps to proximity[1]]
@@ -35,7 +35,7 @@ MOTOR_CONFIGS = [
     {
         "mqtt_id": 1,
         "lower_idx": 2,  # Corresponds to m2/..., stepper2 on Arduino
-        "steps_per_degree": 34.444, # EXAMPLE VALUE - REPLACE
+        "steps_per_degree": 4.444, # EXAMPLE VALUE - REPLACE
         "home_pos_steps": 0,
         "limit_switches_indices": [2, None] # Example: motor 2 doesn't use these global limit switches
                                                # or they are mapped differently.

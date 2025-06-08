@@ -1,0 +1,15 @@
+[Unit]
+Description=MARK2 serevice
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=~/MARK2_reisenderBackend
+ExecStart=~/MARK2_reisenderBackend/mark2-run.sh
+Restart=always
+RestartSec=15
+StandardOutput=file:/var/log/my_script.log
+StandardError=file:/var/log/my_script_error.log
+
+[Install]
+WantedBy=multi-user.target

@@ -340,7 +340,7 @@ class MotorManager_v2():
         if self.motorState == self.MotorState.ERROR:
             self.motorState = self.MotorState.IDEL
             # self.client.publish(f"{self.topic_prefix}/cmd/resolve", "")
-            self.client.publish(f"{self.topic_prefix}/cmd/goHomePos", str(self.homePos))
+        self.client.publish(f"{self.topic_prefix}/cmd/goHomePos", str(self.homePos))
     
     def get_motorData(self):
         """獲取電機數據"""
