@@ -437,6 +437,7 @@ class MachineManager:
             logger.warning(f"機器處於錯誤狀態，無法移動馬達 {motor_id}")
             return False
         logger.info(f"motor_move_abs: id={motor_id}, pos={position}")
+        await asyncio.sleep(0.1)
         # 更新狀態為工作中
         prev_state = self._state
         self._state = MachineState.WORKING

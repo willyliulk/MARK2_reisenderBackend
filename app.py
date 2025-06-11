@@ -437,7 +437,7 @@ async def handle_single_motor_sequence(resources: ResourceManager, motor_id: int
     
     return image_results
 
-async def sp_move_helper(resources: ResourceManager, sp_list: List[float], to_shot: bool = False) -> dict:
+async def sp_move_helper(resources: ResourceManager, path1: List[float], path2: List[float], to_shot: bool = False) -> dict:
     """協調兩個馬達同時執行各自的移動和拍照序列"""
     # sp_queue = sorted(sp_list)  # 排序位置列表
     
@@ -446,10 +446,9 @@ async def sp_move_helper(resources: ResourceManager, sp_list: List[float], to_sh
     #     handle_single_motor_sequence(resources, 0, 'cam0', sp_queue, False, to_shot), 
     #     handle_single_motor_sequence(resources, 1, 'cam1', sp_queue, True , to_shot)
     # )
+    
     await resources.machineManager.set_lamp(r=False, g=False, y=True)
-    optimizer = DualMotorPathOptimizer()
-    (path1, path2), total_time = optimizer.optimize_paths(sp_list)
-    logger.info(f"planned path: {path1} | {path2}")
+
     result = await resources.machineManager.motors_move_points_shot(path1, path2, to_shot)
     if result:
         results1, results2 = result
@@ -482,13 +481,13 @@ async def v2_motors_move_sp(spReq: MotorSetPointReq,
         }
 
         # 執行移動和拍照
-        image_results = await sp_move_helper(resources, spReq.pos_list, to_shot=False)
+        image_results = await sp_move_helper(resources, path1, path2, to_shot=False)
         
         # 保存設定點位置
         if pathList:
             with open('SPconfig.json', 'w') as f:
-                json.dump(spReq.model_dump_json(), f)
-            logger.info(f"Saved SPconfig.json: {spReq.pos_list}")
+                json.dump(spDict, f)
+            logger.info(f"Saved SPconfig.json: {pathList}")
             
         await resources.machineManager.set_lamp(r=False, g=True, y=False)
         return spDict
@@ -532,19 +531,6 @@ async def v2_motors_spSim(spReq: MotorSetPointReq,
 async def v2_cam_shot(spReq: MotorSetPointReq,
                         resources: ResourceManager = Depends(get_resources)):
     """執行拍照序列"""
-    # test data
-    # with open("./tools/testImgData.json") as f:
-    #     json_data = json.load(f)
-    
-    # with open('SPconfig.json', 'w') as f:
-    #     momdelJson = shotReq.model_dump_json()
-    #     momdelJson = json.loads(momdelJson)
-    #     json.dump(momdelJson, f)
-    #     logger.info(f"Saved SPconfig.json: {shotReq.pos_list}")
-
-    
-    # return json_data
-    
     try:
         # 清理舊檔案
         save_dir = "motorImage"
@@ -553,27 +539,32 @@ async def v2_cam_shot(spReq: MotorSetPointReq,
                 os.remove(os.path.join(save_dir, file))
         os.makedirs(save_dir, exist_ok=True)
         
+        pathList, spDict = spDict_to_pathList(spReq.model_dump())
+        optimizer = DualMotorPathOptimizer()
+        (path1, path2), total_time = optimizer.optimize_paths(pathList)
+        spDict['pos_list_multiMotor'] = {
+            "motor0":path1,
+            "motor1":path2
+        }
+
         # 執行移動和拍照
-        image_results = await sp_move_helper(resources, spReq.pos_list, to_shot=True)
+        image_results = await sp_move_helper(resources, path1, path2, to_shot=True)
         
         # 保存設定點位置
-        if spReq.pos_list:
+        if pathList:
             with open('SPconfig.json', 'w') as f:
                 json.dump(spReq.model_dump_json(), f)
             logger.info(f"Saved SPconfig.json: {spReq.pos_list}")
             
+        await resources.machineManager.set_lamp(r=False, g=True, y=False)
         return JSONResponse(content=image_results)
         
     except Exception as e:
+        await resources.machineManager.set_lamp(r=True, g=False, y=False)
         logger.error(f"Error in v2_cam_shot: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
-        
-        raise HTTPException(status_code=500, detail=str(e))
-        
-        logger.error(f"Error in v2_cam_shot: {str(e)}")
-        
-        raise HTTPException(status_code=500, detail=str(e))
 
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get('/v2/motor/spInit')

@@ -80,7 +80,7 @@ v4l2-ctl --device=/dev/video0 --all
 
 監聽USB com設備
 ```bash
-c
+daemon monitor
 interceptty -s '115200' /dev/ttyUSB3 /tmp/ttyV0
 interceptty -s '500000' /dev/ttyUSB3 /tmp/ttyV0
 ```

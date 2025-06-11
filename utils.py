@@ -1,4 +1,5 @@
 from itertools import permutations
+from math import floor
 def get_min_len_path(spList, startPoint):
     def get_pathLen(spList, path):
         pathLen = 0
@@ -147,7 +148,7 @@ class DualMotorPathOptimizer:
             
             if self.check_collision(pos1, pos2):
                 return False, max_time, t
-        
+        print(max_time)
         return True, max_time, None
     
     def get_position_at_time(self, events, time):
@@ -177,10 +178,7 @@ class DualMotorPathOptimizer:
         # 如果超過所有事件，返回home位置
         return self.home_position
     
-    def optimize_paths(self, targets:list[float]):
-        """
-        優化路徑分配
-        """
+    def plan_1(self, targets):
         n = len(targets)
         best_time = float('inf')
         best_allocation = None
@@ -208,11 +206,68 @@ class DualMotorPathOptimizer:
         
         return best_allocation, best_time
 
+    def plan_2(self, targets):
+        initA = 30
+        initB = 360-30
+        FALL_BACK = 15
+
+        wpA_list = []
+        wpB_list = []
+        wayPoint_list_orig = targets
+        wayPoint_list_orig.sort()
+        wayPoint_list_orig = [x for x in wayPoint_list_orig if x > initA and x < initB]
+        # 去除掉waypoint list orig中相鄰兩點過近的其中的後面的點
+        # wayPoint_list_orig = [wayPoint_list_orig[i] for i in range(len(wayPoint_list_orig)) if i == 0 or wayPoint_list_orig[i] - wayPoint_list_orig[i-1] > 15]
+        wayPoint_list = [floor(x) for x in wayPoint_list_orig]
+
+        print("valid wayPoints: ", wayPoint_list)
+
+        for i in range(360):
+            if initA in wayPoint_list:
+                wpA_list.append(initA)
+                id = wayPoint_list.index(initA)
+                wayPoint_list_orig.pop(id)
+                wayPoint_list.pop(id)
+                initA -= FALL_BACK
+                print(wayPoint_list_orig)
+            if initB in wayPoint_list:
+                wpB_list.append(initB)
+                id = wayPoint_list.index(initB)
+                wayPoint_list.pop(id)
+                wayPoint_list_orig.pop(id)
+                initB += FALL_BACK
+                print(wayPoint_list_orig)
+            if abs(initA - initB) < 15:
+                wpA_list.append(initA)
+                id = wayPoint_list.index(initA)
+                wayPoint_list_orig.pop(id)
+                wayPoint_list.pop(id)
+                initA -= FALL_BACK
+                print(wayPoint_list_orig)
+
+
+            # print(initA, initB, sep='\t')
+            initA += 1
+            initB -= 1
+
+            if wayPoint_list_orig == []:
+                break
+        best_allocation = (wpA_list, wpB_list)
+        best_time = 15
+        return best_allocation, best_time
+
+    def optimize_paths(self, targets):
+        """
+        優化路徑分配
+        """
+        # return self.plan_1(targets)
+        return self.plan_2(targets)
+
 
 def spDict_to_pathList(spDict:dict):
     if spDict['sp_type'] == "single":
         pathList = spDict['pos_list']
     if spDict['sp_type'] == "multiMotor":
-        spDict['pos_list'] = spDict['pos_list_multiMotor']['motor0']+spDict['pos_list_multiMotor']['motor0']
+        spDict['pos_list'] = spDict['pos_list_multiMotor']['motor0']+spDict['pos_list_multiMotor']['motor1']
         pathList = spDict['pos_list']
     return pathList, spDict
