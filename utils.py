@@ -221,8 +221,22 @@ class DualMotorPathOptimizer:
         wayPoint_list = [floor(x) for x in wayPoint_list_orig]
 
         print("valid wayPoints: ", wayPoint_list)
-
+        t = 0
         for i in range(360):
+            if (initA in wayPoint_list) and abs(initA - initB) < 20:
+                wpA_list.append(initA)
+                id = wayPoint_list.index(initA)
+                wayPoint_list_orig.pop(id)
+                wayPoint_list.pop(id)
+                initA -= FALL_BACK
+                print(wayPoint_list_orig)
+            if (initB in wayPoint_list) and abs(initA - initB) < 20:
+                wpA_list.append(initB)
+                id = wayPoint_list.index(initB)
+                wayPoint_list_orig.pop(id)
+                wayPoint_list.pop(id)
+                initA -= FALL_BACK
+                print(wayPoint_list_orig)
             if initA in wayPoint_list:
                 wpA_list.append(initA)
                 id = wayPoint_list.index(initA)
@@ -237,23 +251,17 @@ class DualMotorPathOptimizer:
                 wayPoint_list_orig.pop(id)
                 initB += FALL_BACK
                 print(wayPoint_list_orig)
-            if (initA in wayPoint_list or initB in wayPoint_list) and abs(initA - initB) < 15:
-                wpA_list.append(initA)
-                id = wayPoint_list.index(initA)
-                wayPoint_list_orig.pop(id)
-                wayPoint_list.pop(id)
-                initA -= FALL_BACK
-                print(wayPoint_list_orig)
 
 
             # print(initA, initB, sep='\t')
             initA += 1
             initB -= 1
+            t+=1
 
             if wayPoint_list_orig == []:
                 break
         best_allocation = (wpA_list, wpB_list)
-        best_time = 15
+        best_time = t
         return best_allocation, best_time
 
     def optimize_paths(self, targets):
@@ -275,7 +283,7 @@ def spDict_to_pathList(spDict:dict):
 
 
 if __name__ == "__main__":
-    testData = [90, 180, 270]
+    testData = [90, 170, 180, 270]
     optimizer = DualMotorPathOptimizer()
     result = optimizer.optimize_paths(testData)
     print(result)
