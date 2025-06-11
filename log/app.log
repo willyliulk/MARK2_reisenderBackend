@@ -1,0 +1,9 @@
+2025-05-16 08:17:16.775 | INFO     | motorController_Fake:__init__:22 - Fake motor controller initialized with port:/dev/ttyUSB3, baud:115200
+2025-05-16 08:17:16.786 | INFO     | motorController_Fake:connect:28 - Fake connection setup port:/dev/ttyUSB3, baud:500000
+2025-05-16 08:17:17.026 | INFO     | app:lifespan:134 - All resources initialized
+2025-05-16 08:18:00.157 | INFO     | app:lifespan:140 - Resources cleaned up
+2025-05-16 08:18:53.053 | INFO     | motorController_Fake:__init__:22 - Fake motor controller initialized with port:/dev/ttyUSB3, baud:115200
+2025-05-16 08:18:53.054 | INFO     | motorController_Fake:connect:28 - Fake connection setup port:/dev/ttyUSB3, baud:500000
+2025-05-16 08:18:53.296 | ERROR    | machineManager:startManager:52 - mechineManager error: type object 'MachineState' has no attribute 'ERROR'
+2025-05-16 08:18:53.301 | INFO     | app:lifespan:134 - All resources initialized
+2025-05-16 08:19:20.758 | INFO     | app:lifespan:140 - Resources cleaned up

@@ -2,3 +2,4 @@
 .linuxenv
 __pycache__
 motorImage
+.vscode/settings.json
