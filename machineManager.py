@@ -1,16 +1,19 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+from copy import deepcopy
 from enum import Enum
 import asyncio
-import json
+import base64, json
 import traceback
 from typing import Dict, List, Optional, Tuple
 import time
 from pathlib import Path
-import sys 
+import sys, os
 
 import cv2
 from loguru import logger
 import pynng
+
+from utils import DualMotorPathOptimizer, spDict_to_pathList
 
 class MachineState(Enum):
     IDLE = 0
@@ -35,6 +38,23 @@ class LampState:
     def to_dict(self) -> dict:
         return {'r': self.r, 'y': self.y, 'g': self.g}
 
+@dataclass
+class ButtonState:
+    emg     :bool = False
+    shot    :bool = False
+    home    :bool = False
+    resolve :bool = False
+    unknow  :bool = False
+
+
+@dataclass
+class MotorData:
+    id:int = 0
+    pos:float = 0
+    spd:float = 0
+    state:str = "IDLE"
+    
+
 class MachineManager:
     """
     管理機器狀態、攝像頭和通訊的非阻塞異步類
@@ -42,6 +62,7 @@ class MachineManager:
     """
     def __init__(self, 
                  camera_configs: List[dict],
+                 motor0_home_pos = 30, motor1_home_pos = 330,
                  cmd_addr: str = "tcp://127.0.0.1:8780" if sys.platform.startswith("win") else "ipc:///tmp/pico_cmd",
                  stat_addr: str = "tcp://127.0.0.1:8781" if sys.platform.startswith("win") else "ipc:///tmp/pico_stat"):
         
@@ -63,19 +84,16 @@ class MachineManager:
         self.camera_locks: Dict[str, asyncio.Lock] = {}
         
         # 按鈕狀態 (供前端查詢)
-        self.buttons = {
-            "home": False,
-            "shot": False,
-            "emg": False,
-            "resolve": False
-        }
+        self.buttons = ButtonState()
         
         # 馬達狀態
-        self.motor_data = [{
-            "pos": 0.0,
-            "spd": 0.0,
-            "state": "IDLE"
-        } for _ in range(2)]
+        self.motor_data = [MotorData(id=id) for id in range(2)]
+        self.motor0_home_pos = motor0_home_pos
+        self.motor1_home_pos = motor1_home_pos
+        self.motors_home_pos = [motor0_home_pos, motor1_home_pos]
+        
+        # 限位開關狀態
+        self.limitSwitchs = [False for _ in range(2)]
         
         # 初始化攝像頭
         for cfg in camera_configs:
@@ -123,10 +141,13 @@ class MachineManager:
             lamp_task = asyncio.create_task(self._lamp_controller())
             self._tasks.append(lamp_task)
             
+            btnMoni_task = asyncio.create_task(self._btnMoniTask())
+            self._tasks.append(btnMoni_task)
+            
             logger.info("MachineManager 已啟動")
             
             # 發送初始化命令，設置綠燈
-            await self.set_lamp(r=False, y=False, g=True)
+            await self.set_lamp(r=False, y=True, g=False)
             
         except Exception as e:
             logger.error(f"MachineManager啟動失敗: {e}")
@@ -190,25 +211,29 @@ class MachineManager:
         if "m" in data and isinstance(data["m"], list):
             for i, motor in enumerate(data["m"]):
                 if i < len(self.motor_data):
-                    self.motor_data[i]["pos"] = motor.get("pos", 0)
-                    self.motor_data[i]["spd"] = motor.get("spd", 0)
-                    self.motor_data[i]["state"] = motor.get("state", "IDLE")
+                    self.motor_data[i].pos = motor.get("pos", 0)
+                    self.motor_data[i].spd = motor.get("spd", 0)
+                    self.motor_data[i].state = motor.get("state", "IDLE")
         
         # 處理按鈕狀態
         if "btn" in data and isinstance(data["btn"], list):
             btn_list = data["btn"]
+            # 按鈕腳位 (緊急, 拍攝, 紅、綠、藍)
             if len(btn_list) >= 4:
-                self.buttons["home"] = bool(btn_list[0])
-                self.buttons["shot"] = bool(btn_list[1])
-                self.buttons["emg"] = bool(btn_list[2])
-                self.buttons["resolve"] = bool(btn_list[3])
+                self.buttons.emg = bool(btn_list[0])
+                self.buttons.shot = bool(btn_list[1])
+                self.buttons.home = bool(btn_list[2])
+                self.buttons.resolve = bool(btn_list[3])
+                self.buttons.unknow = bool(btn_list[4])
         
         # 處理限位開關狀態
         if "lim" in data and isinstance(data["lim"], list):
             lim_list = data["lim"]
             if len(lim_list) >= 2:
-                if any(lim_list):
+                self.limitSwitchs = [sw==1 for sw in lim_list ]
+                if any(lim_list) and self._state != MachineState.HOMING:
                     await self._handle_error("限位開關觸發")
+                    
         
         # 處理燈狀態同步
         if "lamp" in data:
@@ -220,7 +245,7 @@ class MachineManager:
             try:
                 # 檢查馬達錯誤
                 for i, motor in enumerate(self.motor_data):
-                    if motor["state"] == "ERROR":
+                    if motor.state == "ERROR":
                         await self._handle_error(f"馬達 {i} 錯誤")
                 
                 # 檢查攝像頭錯誤
@@ -229,11 +254,11 @@ class MachineManager:
                         await self._handle_error(f"攝像頭 {name} 連接丟失")
                 
                 # 檢查緊急按鈕
-                if self.buttons["emg"]:
+                if self.buttons.emg:
                     await self._handle_error("緊急停止按鈕已按下")
                 
                 # 檢查解除錯誤
-                if self.buttons["resolve"] and self._state == MachineState.ERROR:
+                if self.buttons.resolve and self._state == MachineState.ERROR:
                     await self.resolve_error()
                 
                 await asyncio.sleep(0.2)  # 定期檢查
@@ -265,6 +290,39 @@ class MachineManager:
                 logger.error(f"燈控制任務出錯: {e}")
                 await asyncio.sleep(1)
     
+    def getSPConfig(self):
+        with open('SPconfig.json', 'r') as f:
+            loaded_sp = json.load(f)
+        if isinstance(loaded_sp, str):
+            loaded_sp:Dict = json.loads(loaded_sp)
+        return loaded_sp
+    
+    async def _btnMoniTask(self):
+        btnStatePrev = deepcopy(self.buttons)
+        shotElapseTime = time.time()
+        while True:
+            btnStateNow = deepcopy(self.buttons)
+            tNow = time.time()
+            # logger.debug((btnStateNow.__repr__()))
+            
+            if all([btnStatePrev.home == False,
+                    btnStateNow.home  == True]):
+                logger.debug("home button acivate")
+                await self.motor_home()
+            
+            if all([btnStatePrev.resolve == False,
+                    btnStateNow.resolve == True]):
+                logger.debug("resolve button activate")
+                await self.resolve_error()
+            
+            if all([btnStatePrev.emg == False,
+                    btnStateNow.emg == True]):
+                logger.debug("emergency button activate")
+                self.trigger_emergency()
+                
+            await asyncio.sleep(0.05)
+                
+    
     async def _handle_error(self, reason: str):
         """處理錯誤狀態"""
         if self._state != MachineState.ERROR:
@@ -282,20 +340,25 @@ class MachineManager:
     
     async def resolve_error(self):
         """解除錯誤狀態"""
-        if self._state == MachineState.ERROR:
-            logger.info("解除錯誤狀態")
-            self._state = MachineState.IDLE
-            self._error_reason = ""
-            self._emergency = False
-            
-            # 清除下位機錯誤
-            for i in range(2):
-                await self.send_command({"cmd": "STOP", "m": i+1})
-            
-            # 設置綠燈
-            await self.set_lamp(r=False, y=False, g=True)
-            
-            return True
+        # if self._state == MachineState.ERROR:
+        logger.info("解除錯誤狀態")
+        self._state = MachineState.HOMING
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self.send_command({"cmd": "HOME", "m": 1}))
+            tg.create_task(self.send_command({"cmd": "HOME", "m": 2}))
+             
+        self._state = MachineState.IDLE
+        self._error_reason = ""
+        self._emergency = False
+        
+        # 清除下位機錯誤
+        # for i in range(2):
+        #     # await self.send_command({"cmd": "STOP", "m": i+1})
+        
+        # 設置綠燈
+        await self.set_lamp(r=False, y=False, g=True)
+        
+        return True
         return False
     
     async def send_command(self, cmd: dict) -> dict:
@@ -305,7 +368,7 @@ class MachineManager:
             self._cmd_id += 1
             cmd["cid"] = self._cmd_id
             
-            with pynng.Req0(dial=self.cmd_addr, recv_timeout=3000) as req:
+            with pynng.Req0(dial=self.cmd_addr, recv_timeout=10000) as req:
                 await req.asend(json.dumps(cmd).encode())
                 response = await req.arecv()
                 return json.loads(response.decode())
@@ -318,12 +381,17 @@ class MachineManager:
             logger.error(f"發送命令時出錯: {cmd} - {e}")
             return {"ok": False, "err": str(e)}
     
-    async def capture_image(self, camera_name: str) -> Optional[Tuple[bool, bytes]]:
+        
+    
+    async def capture_image(self, camera_name: str, position_index:float) -> Optional[Tuple[bool, bytes]]:
         """捕獲指定攝像頭的圖像"""
         if camera_name not in self.camera_list:
             logger.error(f"未找到攝像頭: {camera_name}")
             return None
-        
+        # 確保圖片保存目錄存在
+        save_dir = "motorImage"
+        os.makedirs(save_dir, exist_ok=True)
+
         cap = self.camera_list[camera_name]
         lock = self.camera_locks[camera_name]
         
@@ -337,13 +405,17 @@ class MachineManager:
                 logger.error(f"從攝像頭 {camera_name} 讀取圖像失敗")
                 return None
             
+            # 保存原始圖片
+            save_path = f'{save_dir}/{camera_name}_{position_index}.jpg'
+            cv2.imwrite(save_path, frame)
+            
             # 壓縮圖像以便傳輸
-            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            ret, buffer = cv2.imencode('.jpg', frame)
             if not ret:
                 logger.error(f"壓縮圖像失敗: {camera_name}")
                 return None
-            
-            return (True, buffer.tobytes())
+            jpegb64 = base64.b64encode(buffer).decode('utf-8')
+            return (True, jpegb64)
     
     async def set_lamp(self, r: bool, y: bool, g: bool) -> bool:
         """設置三色燈狀態"""
@@ -364,7 +436,7 @@ class MachineManager:
         if self._state == MachineState.ERROR:
             logger.warning(f"機器處於錯誤狀態，無法移動馬達 {motor_id}")
             return False
-        
+        logger.info(f"motor_move_abs: id={motor_id}, pos={position}")
         # 更新狀態為工作中
         prev_state = self._state
         self._state = MachineState.WORKING
@@ -389,7 +461,7 @@ class MachineManager:
             return False
         
         # 計算新位置
-        current_pos = self.motor_data[motor_id]["pos"]
+        current_pos = self.motor_data[motor_id].pos
         new_pos = current_pos + increment
         
         return await self.motor_move_abs(motor_id, new_pos)
@@ -422,6 +494,19 @@ class MachineManager:
             return False
         
         return True
+    
+    def motor_is_home(self, motor_id=0):
+        if motor_id<0 or motor_id>1:
+            raise Exception(f"motor_is_home: invalid motor_id: {motor_id}")
+
+        if motor_id == 0:
+            pos = self.motor0_home_pos
+            home_pos = self.motor_data[0].pos
+        else:
+            pos = self.motor1_home_pos
+            home_pos = self.motor_data[1].pos
+        return  abs(pos - home_pos) < 0.5
+        
     
     async def save_params(self) -> bool:
         """保存參數到下位機"""
@@ -464,8 +549,8 @@ class MachineManager:
             "emergency": self._emergency,
             "reason": self._error_reason,
             "lamp": self._lamp_state.to_dict(),
-            "motors": self.motor_data,
-            "buttons": self.buttons
+            "motors": asdict(self.motor_data),
+            "buttons": asdict(self.buttons)
         }
     
     def get_camera_list(self) -> List[str]:
@@ -479,3 +564,135 @@ class MachineManager:
     def get_error_reason(self) -> str:
         """獲取錯誤原因"""
         return self._error_reason if self._state == MachineState.ERROR else ""
+
+
+    async def trigger_emergency(self):
+        """觸發緊急停止"""
+        logger.warning("觸發緊急停止")
+        self._state = MachineState.ERROR
+        self._emergency = True
+        self._error_reason = "緊急停止觸發"
+        
+        # 設置紅燈
+        await self.set_lamp(r=True, y=False, g=False)
+        
+        # 停止所有馬達
+        for i in range(len(self.motor_data)):
+            await self.motor_stop(i)
+
+    def get_error_log(self) -> dict:
+        """返回當前錯誤日誌"""
+        return {
+            "state": self._state.name,
+            "emergency": self._emergency,
+            "reason": self._error_reason,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        }
+
+    def is_emergency(self) -> bool:
+        """檢查機器是否處於緊急停止狀態"""
+        return self._emergency
+
+    def get_state_data(self) -> dict:
+        """獲取機器當前狀態的完整數據"""
+        # 確定目前的燈號顏色
+        if self._lamp_state.r:
+            light_color = "r"
+        elif self._lamp_state.y:
+            light_color = "y"
+        elif self._lamp_state.g:
+            light_color = "g"
+        else:
+            light_color = "off"
+        
+        # 確定機器狀態
+        machine_state = self._state.name
+        
+        # 獲取按下的按鈕列表
+        btn_on = []
+        btn_on = []
+        
+        for btn, status in asdict(self.buttons).items():
+            if status:
+                btn_on.append(btn)
+        
+        return {
+            'emergency': self._emergency,
+            'reason': self._error_reason,
+            'state': machine_state,
+            'colorLight': light_color,
+            'btn_on': btn_on
+        }
+
+    def get_btn_list(self) -> list:
+        """獲取當前按下的按鈕列表"""
+        return [btn for btn, status in asdict(self.buttons).items() if status]
+
+
+    
+    async def wait_motor_move_to_pos(self, motor_id: int, target_pos: float):
+        start = time.time()
+        while True:
+            motor_pos = self.motor_data[motor_id].pos
+            motor_proximity = self.limitSwitchs[motor_id]
+            motor_stop = motor_proximity or self.motor_data[motor_id].state == "ERROR"
+            mechineStop = self.is_emergency()
+
+            # 抵達目標點或被停止
+            if abs(motor_pos - target_pos) <= 5:
+                logger.debug(f'Motor move to {motor_pos} success')
+                break
+            
+            # 處理執行超時
+            if time.time() - start > 8:
+                logger.error(f"Motor {motor_id} move to pos {target_pos} timeout, now at {motor_pos}")
+                raise Exception(f"Motor move timeout to target: {target_pos}")
+            
+            # 處理停止指令
+            if motor_stop:
+                print("STOP in app")
+                raise Exception("STOP: motor_stop")
+            
+            if mechineStop:
+                print("STOP in app")
+                self.motor_stop(motor_id)
+                raise Exception("STOP: mechineStop")
+                
+            await asyncio.sleep(0.01)
+
+    async def handle_single_motor_sequence(self, motor_id=0, motor_pts=[30, 330], to_shot=False, cam_name='cam0'):
+        """處理單個馬達的運動序列"""
+        image_list = []
+        for pt in motor_pts:
+            ret = await self.motor_move_abs(motor_id, pt)
+            if not ret:
+                raise Exception(f"motor {motor_id} moving pt error")
+            
+            await self.wait_motor_move_to_pos(motor_id, pt)
+            
+            if to_shot:
+                result = await self.capture_image(cam_name, pt)
+                if result is not None:  # 檢查 result 是否為 None
+                    _, img = result
+                    image_list.append(img)
+            else:
+                await asyncio.sleep(0.5)
+        ret = await self.motor_move_abs(motor_id, self.motors_home_pos[motor_id])
+        if not ret:
+            raise Exception(f"motor {motor_id} moving pt error")
+
+        return image_list
+                    
+                    
+    
+    async def motors_move_points_shot(self, motor0_pts, motor1_pts, to_shot=False):
+        """
+        讓馬達移動到指定的點位列表
+        """
+        async with asyncio.TaskGroup() as tg:
+            task1 = tg.create_task(self.handle_single_motor_sequence(0, motor0_pts, to_shot, 'cam0'))
+            task2 = tg.create_task(self.handle_single_motor_sequence(1, motor1_pts, to_shot, 'cam1'))
+
+        if to_shot:
+            return (task1.result(), task2.result())
+        return None
