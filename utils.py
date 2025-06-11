@@ -283,7 +283,7 @@ def spDict_to_pathList(spDict:dict):
 
 
 if __name__ == "__main__":
-    testData = [90, 170, 180, 270]
+    testData =  [90, 110, 150, 180, 200, 230]
     optimizer = DualMotorPathOptimizer()
     result = optimizer.optimize_paths(testData)
     print(result)

@@ -133,8 +133,8 @@ async def lifespan(app: FastAPI):
             ]
         else:
             camera_configs = [
-                {"dev": "/dev/video0", "name": "cam0"},
-                {"dev": "/dev/video2", "name": "cam1"}
+                {"dev": "/dev/video0", "name": "cam1"},
+                {"dev": "/dev/video2", "name": "cam0"}
             ]
 
         resources = ResourceManager('/dev/ttyUSB3', camera_configs)
@@ -270,7 +270,7 @@ async def v2_ws_cam(websocket:WebSocket ,id:int):
 
     try:
         while True:
-            cap:cv2.VideoCapture = resources.cameras_list[f"cam{id}"]
+            cap:cv2.VideoCapture = resources.machineManager.camera_list[f"cam{id}"]
             ret, frame = cap.read()
             if not ret:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
