@@ -237,7 +237,7 @@ class DualMotorPathOptimizer:
                 wayPoint_list_orig.pop(id)
                 initB += FALL_BACK
                 print(wayPoint_list_orig)
-            if abs(initA - initB) < 15:
+            if (initA in wayPoint_list or initB in wayPoint_list) and abs(initA - initB) < 15:
                 wpA_list.append(initA)
                 id = wayPoint_list.index(initA)
                 wayPoint_list_orig.pop(id)
@@ -271,3 +271,11 @@ def spDict_to_pathList(spDict:dict):
         spDict['pos_list'] = spDict['pos_list_multiMotor']['motor0']+spDict['pos_list_multiMotor']['motor1']
         pathList = spDict['pos_list']
     return pathList, spDict
+
+
+
+if __name__ == "__main__":
+    testData = [90, 180, 270]
+    optimizer = DualMotorPathOptimizer()
+    result = optimizer.optimize_paths(testData)
+    print(result)
