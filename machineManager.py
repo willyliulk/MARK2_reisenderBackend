@@ -303,21 +303,24 @@ class MachineManager:
         while True:
             btnStateNow = deepcopy(self.buttons)
             tNow = time.time()
-            # logger.debug((btnStateNow.__repr__()))
+            # print((btnStateNow))
             
             if all([btnStatePrev.home == False,
                     btnStateNow.home  == True]):
-                logger.debug("home button acivate")
-                await self.motor_home()
+                print("home button acivate")
+                async with asyncio.TaskGroup() as tg:
+                    tg.create_task(self.motor_move_abs(0, self.motor0_home_pos))
+                    tg.create_task(self.motor_move_abs(1, self.motor1_home_pos))
+                    
             
             if all([btnStatePrev.resolve == False,
                     btnStateNow.resolve == True]):
-                logger.debug("resolve button activate")
+                print("resolve button activate")
                 await self.resolve_error()
             
             if all([btnStatePrev.emg == False,
                     btnStateNow.emg == True]):
-                logger.debug("emergency button activate")
+                print("emergency button activate")
                 self.trigger_emergency()
                 
             await asyncio.sleep(0.05)

@@ -72,8 +72,8 @@ class SerialManager:
     # ───────── internal ─────────
     async def _connect_and_loop(self):
         while True:
-            # dev = self._auto_scan()
-            dev = r"/dev/ttyACM0"
+            dev = self._auto_scan()
+            # dev = r"/dev/ttyACM0"
             if dev:
                 self.port = dev
                 break
