@@ -691,8 +691,8 @@ class MachineManager:
         讓馬達移動到指定的點位列表
         """
         async with asyncio.TaskGroup() as tg:
-            task1 = tg.create_task(self.handle_single_motor_sequence(0, motor0_pts, to_shot, 'cam0'))
-            task2 = tg.create_task(self.handle_single_motor_sequence(1, motor1_pts, to_shot, 'cam1'))
+            task1 = tg.create_task(self.handle_single_motor_sequence(0, motor0_pts, to_shot, cam_name='cam0'))
+            task2 = tg.create_task(self.handle_single_motor_sequence(1, motor1_pts, to_shot, cam_name='cam1'))
 
         if to_shot:
             return (task1.result(), task2.result())
