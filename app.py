@@ -1023,5 +1023,5 @@ if __name__ == "__main__":
     logger.add("log/app.log", level="INFO", rotation="10 MB", compression="zip")
     logger.configure(handlers=[{"sink": sys.stderr, "level": "INFO"}])
     print('hello')
-    uvicorn.run(app='app:app', host="0.0.0.0", port=8800, reload=True)
+    uvicorn.run(app='app:app', host="0.0.0.0", port=8800, reload=False)
 

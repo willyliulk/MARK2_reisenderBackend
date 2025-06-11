@@ -72,7 +72,8 @@ class SerialManager:
     # ───────── internal ─────────
     async def _connect_and_loop(self):
         while True:
-            dev = self._auto_scan()
+            # dev = self._auto_scan()
+            dev = r"/dev/ttyACM0"
             if dev:
                 self.port = dev
                 break
@@ -114,6 +115,7 @@ class SerialManager:
         """
         CAND = []
         for p in list_ports.comports():
+            
             if p.vid == 0x2E8A:
                 return p.device
             kw = (p.description or "").lower()

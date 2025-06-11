@@ -23,7 +23,7 @@ class PicoDualStepperGUI:
 
     def init_serial(self):
         try:
-            self.serial_port = serial.Serial(port='COM12', baudrate=115200, timeout=1)
+            self.serial_port = serial.Serial(port='/dev/ttyACM0', baudrate=115200, timeout=1)
             print("Serial port connected.")
         except Exception as e:
             print(f"Error connecting to serial port: {e}")
