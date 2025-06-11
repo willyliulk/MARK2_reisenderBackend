@@ -446,6 +446,7 @@ async def sp_move_helper(resources: ResourceManager, sp_list: List[float], to_sh
     #     handle_single_motor_sequence(resources, 0, 'cam0', sp_queue, False, to_shot), 
     #     handle_single_motor_sequence(resources, 1, 'cam1', sp_queue, True , to_shot)
     # )
+    resources.machineManager.set_lamp(r=False, g=False, y=True)
     optimizer = DualMotorPathOptimizer()
     (path1, path2), total_time = optimizer.optimize_paths(sp_list)
     logger.info(f"planned path: {path1} | {path2}")
@@ -461,13 +462,16 @@ async def sp_move_helper(resources: ResourceManager, sp_list: List[float], to_sh
         "cam0": results1,
         "cam1": results2
     }
-        
+    
+    resources.machineManager.set_lamp(r=False, g=True, y=False)
     return image_results
 
 @app.post('/v2/motors/move/sp')
 async def v2_motors_move_sp(spReq: MotorSetPointReq,
                           resources: ResourceManager = Depends(get_resources)):
     """處理多點移動請求並返回拍攝的圖片"""
+    resources.machineManager.set_lamp(r=False, g=False, y=True)
+
     try:
         pathList, spDict = spDict_to_pathList(spReq.model_dump())
         optimizer = DualMotorPathOptimizer()
@@ -486,10 +490,12 @@ async def v2_motors_move_sp(spReq: MotorSetPointReq,
                 json.dump(spReq.model_dump_json(), f)
             logger.info(f"Saved SPconfig.json: {spReq.pos_list}")
             
+        resources.machineManager.set_lamp(r=False, g=True, y=False)
         return spDict
         # return JSONResponse(content=image_results)
         
     except Exception as e:
+        resources.machineManager.set_lamp(r=True, g=False, y=False)
         logger.error(f"Error in v2_motors_move_sp: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
 
