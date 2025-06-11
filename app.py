@@ -126,15 +126,16 @@ lock_cap2 = asyncio.Lock()
 async def lifespan(app: FastAPI):
     try:
 
-        # camera_configs = [
-        #     {"dev": "/dev/video0", "name": "cam1"},
-        #     {"dev": "/dev/video2", "name": "cam2"}
-        # ]
-
-        camera_configs = [
-            {"dev": "./testRes/SampleVideo_720x480_5mb.mp4", "name": "cam0"},
-            {"dev": "./testRes/SampleVideo_720x480_5mb.mp4", "name": "cam1"}
-        ]
+        if sys.platform.startswith("win"):
+            camera_configs = [
+                {"dev": "./testRes/SampleVideo_720x480_5mb.mp4", "name": "cam0"},
+                {"dev": "./testRes/SampleVideo_720x480_5mb.mp4", "name": "cam1"}
+            ]
+        else:
+            camera_configs = [
+                {"dev": "/dev/video0", "name": "cam1"},
+                {"dev": "/dev/video2", "name": "cam2"}
+            ]
 
         resources = ResourceManager('/dev/ttyUSB3', camera_configs)
         # 執行異步初始化
