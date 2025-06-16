@@ -645,12 +645,12 @@ class MachineManager:
             mechineStop = self.is_emergency()
 
             # 抵達目標點或被停止
-            if abs(motor_pos - target_pos) <= 5:
+            if abs(motor_pos - target_pos) <= 2:
                 logger.debug(f'Motor move to {motor_pos} success')
                 break
             
             # 處理執行超時
-            if time.time() - start > 8:
+            if time.time() - start > 15:
                 logger.error(f"Motor {motor_id} move to pos {target_pos} timeout, now at {motor_pos}")
                 raise Exception(f"Motor move timeout to target: {target_pos}")
             
