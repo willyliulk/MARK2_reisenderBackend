@@ -476,7 +476,8 @@ class MachineManager:
             "cmd": "STOP",
             "m": motor_id + 1
         })
-        self._state = MachineState.IDLE
+        if self._state != MachineState.ERROR:
+            self._state = MachineState.IDLE
         
         return response.get("ok", False)
     
