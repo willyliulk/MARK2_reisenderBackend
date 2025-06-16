@@ -456,7 +456,7 @@ class MachineManager:
             if prev_state != MachineState.ERROR:  # 避免覆蓋已有的錯誤狀態
                 self._state = prev_state
             return False
-        
+        self._state = MachineState.IDLE
         return True
     
     async def motor_move_inc(self, motor_id: int, increment: float) -> bool:
@@ -476,6 +476,7 @@ class MachineManager:
             "cmd": "STOP",
             "m": motor_id + 1
         })
+        self._state = MachineState.IDLE
         
         return response.get("ok", False)
     
@@ -693,10 +694,12 @@ class MachineManager:
         """
         讓馬達移動到指定的點位列表
         """
+        self._state = MachineState.WORKING
         async with asyncio.TaskGroup() as tg:
             task1 = tg.create_task(self.handle_single_motor_sequence(0, motor0_pts, to_shot, cam_name='cam0'))
             task2 = tg.create_task(self.handle_single_motor_sequence(1, motor1_pts, to_shot, cam_name='cam1'))
 
         if to_shot:
             return (task1.result(), task2.result())
+        self._state = MachineState.IDLE
         return None
