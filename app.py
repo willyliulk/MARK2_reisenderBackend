@@ -142,7 +142,12 @@ async def lifespan(app: FastAPI):
         await resources.initialize()
         app.state.resources = resources
         logger.info("All resources initialized")
-        
+        for i in range(5):
+            resources.machineManager.set_lamp(r=False, y=False, g=False)
+            await asyncio.sleep(0.2)
+            resources.machineManager.set_lamp(r=False, y=False, g=True)
+            await asyncio.sleep(0.2)
+
         yield
         
     finally:
