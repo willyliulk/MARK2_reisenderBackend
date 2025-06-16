@@ -29,7 +29,7 @@ IS_WIN = sys.platform.startswith("win")
 BAUD          = 115200
 SCAN_INT      = 2          # Serial 掃描間隔 (秒)
 STATUS_FALLBACK = 2.0      # N 秒內無下位機狀態 ⇒ 送 keep-alive
-ANGLE_TO_TICK = 42
+ANGLE_TO_TICK = 105
 ANGLE_OFFSET_0  = 33
 ANGLE_OFFSET_1  = 330
 
@@ -315,9 +315,9 @@ class DeviceService:
             # print(cmd)
             if 'pos' in cmd:
                 if cmd['m'] == 1:
-                    cmd['pos'] = (cmd['pos']-ANGLE_OFFSET_0) * -ANGLE_TO_TICK
+                    cmd['pos'] = (cmd['pos']-ANGLE_OFFSET_0) * ANGLE_TO_TICK
                 elif cmd['m'] == 2:
-                    cmd['pos'] = (cmd['pos']-ANGLE_OFFSET_1) * ANGLE_TO_TICK
+                    cmd['pos'] = (cmd['pos']-ANGLE_OFFSET_1) * -ANGLE_TO_TICK
             # print(cmd)
             fut = asyncio.get_running_loop().create_future()
             self.cmd_waiters[cid] = fut
@@ -379,8 +379,8 @@ class DeviceService:
         else:
             # print(msg)
             if "m" in msg:
-                msg['m'][0]["pos"] = (msg['m'][0]["pos"]) / -ANGLE_TO_TICK  + ANGLE_OFFSET_0
-                msg['m'][1]["pos"] = (msg['m'][1]["pos"]) / ANGLE_TO_TICK + ANGLE_OFFSET_1
+                msg['m'][0]["pos"] = (msg['m'][0]["pos"]) / ANGLE_TO_TICK  + ANGLE_OFFSET_0
+                msg['m'][1]["pos"] = (msg['m'][1]["pos"]) / -ANGLE_TO_TICK + ANGLE_OFFSET_1
             # print(msg)
             await self._publish(msg)
 
