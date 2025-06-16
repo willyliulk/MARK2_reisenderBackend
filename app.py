@@ -215,7 +215,9 @@ async def v2_post_machine_raise_error(resources: ResourceManager = Depends(get_r
 
 @app.post('/v2/machine/resolve')
 async def v2_post_machine_resolve(resources: ResourceManager = Depends(get_resources)):
+    await resources.machineManager.set_lamp(r=False, y=True, g=False)
     await resources.machineManager.resolve_error()
+    await resources.machineManager.set_lamp(r=False, y=False, g=True)
     return {'statue':'ok'}
 
 @app.get('/v2/motor/{id}/data')
@@ -594,6 +596,17 @@ def v2_get_motor_spInit():
     return JSONResponse([x for x in range(0, 60001, 1000)])
 
 
+def getPostFiles_v2():
+    img_paths = os.listdir('motorImage')
+    files=[]
+    for i, img_path in enumerate(img_paths):
+        temp = (
+            'file', 
+            (f'img{i}.jpg', open(f'./motorImage/{img_path}', 'rb') , 'image/jpeg')
+        )
+        files.append(temp)
+    return files
+
 @app.post('/v2/result/upload')
 def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
     """
@@ -634,6 +647,32 @@ def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
         "subcategory": "14-17 ODYSSEY"
     }
     ]}
+    
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    result_folder = f"/home/ubuntu/Desktop/resultsFromReisender/{timestamp}"
+    os.makedirs(result_folder, exist_ok=True)
+    
+    # Save images
+    img_paths = os.listdir('motorImage')
+    for img_path in img_paths:
+        src = f'./motorImage/{img_path}'
+        dst = f'{result_folder}/{img_path}'
+        os.system(f'cp {src} {dst}')
+        
+        logger.debug('result upload')
+
+    files = getPostFiles()
+    response = requests.post(
+        "http://localhost:5001/img_predict",
+        headers={
+            "accept": "application/json"
+        },
+        files=files,
+        timeout=10
+    )
+
+    
+
 
 
 #endregion 
