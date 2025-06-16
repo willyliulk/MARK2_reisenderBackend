@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 
 from utils import get_min_len_path, DualMotorPathOptimizer, spDict_to_pathList
 from motorManager import MotorManager, MotorManager_v2
-from machineManager import MachineManager
+from machineManager import MachineManager, MachineState
 
 # TODO: 軟體按下 EmgStop 處理程序呼叫需要有API
 # TODO: 提供專門的API取得最近一次的拍照結果嗎?
@@ -143,9 +143,9 @@ async def lifespan(app: FastAPI):
         app.state.resources = resources
         logger.info("All resources initialized")
         for i in range(5):
-            await resources.machineManager.set_lamp(r=False, y=False, g=False)
+            # await resources.machineManager.set_lamp(r=False, y=False, g=False)
             await asyncio.sleep(0.2)
-            await resources.machineManager.set_lamp(r=False, y=False, g=True)
+            # await resources.machineManager.set_lamp(r=False, y=False, g=True)
             await asyncio.sleep(0.2)
 
         yield
@@ -168,8 +168,7 @@ app.mount("/numPic" , StaticFiles(directory="./html/numPic"))
 app.mount("/pics"   , StaticFiles(directory="./html/pics"))
 
 origins = [
-    "http://localhost",
-    "http://localhost:8800",
+    "*",
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -187,6 +186,9 @@ def get_resources(request: Request) -> ResourceManager:
 # ------------------------------- 路由 --------------------------
 
 #region MARK2
+@app.options("/{rest_of_path}")
+async def options_route(rest_of_path: str):
+    return Response(status_code=200)
 
 @app.get('/v2/machine/emergency')
 async def v2_get_machine_emergency(resources: ResourceManager = Depends(get_resources)):
@@ -215,10 +217,15 @@ async def v2_post_machine_raise_error(resources: ResourceManager = Depends(get_r
 
 @app.post('/v2/machine/resolve')
 async def v2_post_machine_resolve(resources: ResourceManager = Depends(get_resources)):
-    await resources.machineManager.set_lamp(r=False, y=True, g=False)
-    await resources.machineManager.resolve_error()
-    await resources.machineManager.set_lamp(r=False, y=False, g=True)
-    return {'statue':'ok'}
+    if resources.machineManager._state == MachineState.ERROR:
+        # await resources.machineManager.set_lamp(r=False, y=True, g=False)
+        await resources.machineManager.resolve_error()
+        # await resources.machineManager.set_lamp(r=False, y=False, g=True)
+        resources.machineManager._state = MachineState.IDLE
+
+        return {'statue':'ok'}
+    else:
+        return {"not in error"}
 
 @app.get('/v2/motor/{id}/data')
 def v2_get_motor_data(id:int, resources: ResourceManager = Depends(get_resources)):
@@ -341,6 +348,7 @@ async def v2_motor_move_abs(id:int, moveAbsReq:MotorMoveAbsReq,
         return JSONResponse(status_code=400, content={"error": "Invalid position"})
     pos = moveAbsReq.pos
     await resources.machineManager.motor_move_abs(id, pos)
+    resources.machineManager._state = MachineState.IDLE
     return {"status": "OK"}
 
 @app.post('/v2/motor/{id}/move/inc')
@@ -348,6 +356,7 @@ async def v2_motor_move_inc(id:int, moveIncReq:MotorMoveIncReq,
                    resources: ResourceManager = Depends(get_resources)):
     pos = moveIncReq.pos
     await resources.machineManager.motor_move_inc(id, pos)
+    resources.machineManager._state = MachineState.IDLE
     return {"status": "OK"}
 
 @app.post('/v2/motor/{id}/move/home')
@@ -356,6 +365,7 @@ async def v2_motor_move_home(id:int, resources: ResourceManager = Depends(get_re
         return JSONResponse(status_code=404, content={"error": "Motor not found"})
     homePos = resources.machineManager.motors_home_pos[id]
     await resources.machineManager.motor_move_abs(id, homePos)
+    resources.machineManager._state = MachineState.IDLE
     return {"status": "OK"}
     
 async def wait_motor_move_to_pos(motor:MotorManager_v2, motor_id: int, target_pos: float, res: ResourceManager):
@@ -455,8 +465,8 @@ async def sp_move_helper(resources: ResourceManager, path1: List[float], path2: 
     #     handle_single_motor_sequence(resources, 1, 'cam1', sp_queue, True , to_shot)
     # )
     
-    await resources.machineManager.set_lamp(r=False, g=False, y=True)
-
+    # await resources.machineManager.set_lamp(r=False, g=False, y=True)
+    resources.machineManager._state = MachineState.WORKING
     result = await resources.machineManager.motors_move_points_shot(path1, path2, to_shot)
     if result:
         results1, results2 = result
@@ -469,20 +479,22 @@ async def sp_move_helper(resources: ResourceManager, path1: List[float], path2: 
         "cam0": results1,
         "cam1": results2
     }
-    
-    await resources.machineManager.set_lamp(r=False, g=True, y=False)
+    resources.machineManager._state = MachineState.IDLE
+    # await resources.machineManager.set_lamp(r=False, g=True, y=False)
     return image_results
 
 @app.post('/v2/motors/move/sp')
 async def v2_motors_move_sp(spReq: MotorSetPointReq,
                           resources: ResourceManager = Depends(get_resources)):
     """處理多點移動請求並返回拍攝的圖片"""
-    await resources.machineManager.set_lamp(r=False, g=False, y=True)
+    # await resources.machineManager.set_lamp(r=False, g=False, y=True)
 
     try:
         pathList, spDict = spDict_to_pathList(spReq.model_dump())
         optimizer = DualMotorPathOptimizer()
         (path1, path2), total_time = optimizer.optimize_paths(pathList)
+        if not path1 and not path2:
+            raise HTTPException(404, "No Valid Path")
         spDict['pos_list_multiMotor'] = {
             "motor0":path1,
             "motor1":path2
@@ -497,12 +509,12 @@ async def v2_motors_move_sp(spReq: MotorSetPointReq,
                 json.dump(spDict, f)
             logger.info(f"Saved SPconfig.json: {pathList}")
             
-        await resources.machineManager.set_lamp(r=False, g=True, y=False)
+        # await resources.machineManager.set_lamp(r=False, g=True, y=False)
         return spDict
         # return JSONResponse(content=image_results)
         
     except Exception as e:
-        await resources.machineManager.set_lamp(r=True, g=False, y=False)
+        # await resources.machineManager.set_lamp(r=True, g=False, y=False)
         logger.error(f"Error in v2_motors_move_sp: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
 
@@ -512,6 +524,20 @@ async def v2_motors_move_sp(spReq: MotorSetPointReq,
 async def v2_motors_spSim(spReq: MotorSetPointReq,
                           resources: ResourceManager = Depends(get_resources)):
     """處理多點移動請求並返回拍攝的圖片"""
+    
+    pathList, spDict = spDict_to_pathList(spReq.model_dump())
+    optimizer = DualMotorPathOptimizer()
+    (path1, path2), total_time = optimizer.optimize_paths(pathList)
+    spDict['pos_list_multiMotor'] = {
+        "motor0":path1,
+        "motor1":path2
+    }
+    spDict['positions'] = {
+        "motor0":path1,
+        "motor1":path2
+    }
+    return spDict
+
     spRes = spReq
     if spReq.sp_type == "single":
         optimizer = DualMotorPathOptimizer()
@@ -561,14 +587,14 @@ async def v2_cam_shot(spReq: MotorSetPointReq,
         # 保存設定點位置
         if pathList:
             with open('SPconfig.json', 'w') as f:
-                json.dump(spReq.model_dump_json(), f)
-            logger.info(f"Saved SPconfig.json: {spReq.pos_list}")
+                json.dump(spDict, f)
+            logger.info(f"Saved SPconfig.json: {spDict}")
             
-        await resources.machineManager.set_lamp(r=False, g=True, y=False)
+        # await resources.machineManager.set_lamp(r=False, g=True, y=False)
         return JSONResponse(content=image_results)
         
     except Exception as e:
-        await resources.machineManager.set_lamp(r=True, g=False, y=False)
+        # await resources.machineManager.set_lamp(r=True, g=False, y=False)
         logger.error(f"Error in v2_cam_shot: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
 
@@ -615,38 +641,38 @@ def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
     """
     # TODO 補齊功能
 
-    return {'result':   [
-    {
-        "directory": "VO10 Volvo BM14 Transfer",
-        "family": "ZF4HP22",
-        "index": 244,
-        "label": "vo10_volvo_bm14_transfer",
-        "make": "VOLVO",
-        "part": "torque_converter",
-        "probability": 0,
-        "subcategory": "2.3L 740 GLE"
-    },
-    {
-        "directory": "VW8 VW RE9 Transfer",
-        "family": "095, 096, 097",
-        "index": 249,
-        "label": "vw8_vw_re9_transfer",
-        "make": "VW",
-        "part": "torque_converter",
-        "probability": 0,
-        "subcategory": "2.0L Passat"
-    },
-    {
-        "directory": "Honda PYRA Transfer",
-        "family": "PYRA",
-        "index": 415,
-        "label": "honda_pyra_transfer",
-        "make": "HONDA",
-        "part": "transmission_case",
-        "probability": 0,
-        "subcategory": "14-17 ODYSSEY"
-    }
-    ]}
+    # return {'result':   [
+    # {
+    #     "directory": "VO10 Volvo BM14 Transfer",
+    #     "family": "ZF4HP22",
+    #     "index": 244,
+    #     "label": "vo10_volvo_bm14_transfer",
+    #     "make": "VOLVO",
+    #     "part": "torque_converter",
+    #     "probability": 0,
+    #     "subcategory": "2.3L 740 GLE"
+    # },
+    # {
+    #     "directory": "VW8 VW RE9 Transfer",
+    #     "family": "095, 096, 097",
+    #     "index": 249,
+    #     "label": "vw8_vw_re9_transfer",
+    #     "make": "VW",
+    #     "part": "torque_converter",
+    #     "probability": 0,
+    #     "subcategory": "2.0L Passat"
+    # },
+    # {
+    #     "directory": "Honda PYRA Transfer",
+    #     "family": "PYRA",
+    #     "index": 415,
+    #     "label": "honda_pyra_transfer",
+    #     "make": "HONDA",
+    #     "part": "transmission_case",
+    #     "probability": 0,
+    #     "subcategory": "14-17 ODYSSEY"
+    # }
+    # ]}
     
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     result_folder = f"/home/ubuntu/Desktop/resultsFromReisender/{timestamp}"
@@ -670,6 +696,12 @@ def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
         files=files,
         timeout=10
     )
+    result=dict()
+    if response.status_code == 200:
+        logger.info("上傳成功")
+        return response
+    else:
+        raise HTTPException(400, "上傳失敗")
 
     
 
