@@ -186,7 +186,7 @@ class MachineManager:
                 while self._is_running:
                     try:
                         # 非阻塞接收，超時後繼續循環
-                        msg = await asyncio.wait_for(sub.arecv_msg(), timeout=0.5)
+                        msg = await asyncio.wait_for(sub.arecv_msg(), timeout=1)
                         data = json.loads(msg.bytes.decode())
                         
                         # 處理狀態數據
@@ -231,7 +231,7 @@ class MachineManager:
             lim_list = data["lim"]
             if len(lim_list) >= 2:
                 self.limitSwitchs = [sw==1 for sw in lim_list ]
-                if any(lim_list) and self._state != MachineState.HOMING:
+                if any(self.limitSwitchs) and self._state != MachineState.HOMING:
                     await self._handle_error("限位開關觸發")
                     
         
@@ -364,7 +364,7 @@ class MachineManager:
         #     tg.create_task(self.wait_motor_move_to_pos(1, self.motor1_home_pos))
              
         self._state = MachineState.IDLE
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.5)
         self._error_reason = ""
         self._emergency = False
         
@@ -373,7 +373,7 @@ class MachineManager:
         #     # await self.send_command({"cmd": "STOP", "m": i+1})
         
         # 設置綠燈
-        # await self.set_lamp(r=False, y=False, g=True)
+        await self.set_lamp(r=False, y=False, g=True)
         
         return True
         return False
@@ -416,7 +416,7 @@ class MachineManager:
             if not cap.isOpened():
                 logger.error(f"攝像頭 {camera_name} 未打開")
                 return None
-            for i in range(10):
+            for i in range(5):
                 ret, frame = cap.read()
             if not ret:
                 logger.error(f"從攝像頭 {camera_name} 讀取圖像失敗")

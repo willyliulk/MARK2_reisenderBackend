@@ -1,0 +1,21 @@
+/var/log/mark2-pico-bridge.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 ubuntu ubuntu
+    su root root
+}
+
+/var/log/mark2-app.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 ubuntu ubuntu
+    su root root
+}

@@ -1,5 +1,7 @@
 .venv
 .linuxenv
 __pycache__
-motorImage
+motorImage/
 .vscode/settings.json
+log/
+

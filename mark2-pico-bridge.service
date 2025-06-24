@@ -1,0 +1,19 @@
+# /etc/systemd/system/mark2-pico-bridge.service
+[Unit]
+Description=MARK2 Pico Bridge Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/MARK2_reisenderBackend
+ExecStart=/home/ubuntu/.local/bin/uv run motorNode/pico_bridge_v2.py
+StandardOutput=append:/var/log/mark2-pico-bridge.log
+StandardError=append:/var/log/mark2-pico-bridge.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+# /etc/systemd/system/mark2-app.service
+[Unit]
+Description=MARK2 App Service
+After=mark2-pico-bridge.service
+Requires=mark2-pico-bridge.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/MARK2_reisenderBackend
+ExecStartPre=/bin/sleep 10
+ExecStart=/home/ubuntu/.local/bin/uv run app.py
+StandardOutput=append:/var/log/mark2-app.log
+StandardError=append:/var/log/mark2-app.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

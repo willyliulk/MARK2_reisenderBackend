@@ -210,6 +210,7 @@ class DualMotorPathOptimizer:
         initA = 30
         initB = 360-30
         FALL_BACK = 15
+        HIT_RANGE = 45
 
         wpA_list = []
         wpB_list = []
@@ -223,14 +224,14 @@ class DualMotorPathOptimizer:
         print("valid wayPoints: ", wayPoint_list)
         t = 0
         for i in range(360):
-            if (initA in wayPoint_list) and abs(initA - initB) < 40:
+            if (initA in wayPoint_list) and abs(initA - initB) < HIT_RANGE:
                 wpA_list.append(initA)
                 id = wayPoint_list.index(initA)
                 wayPoint_list_orig.pop(id)
                 wayPoint_list.pop(id)
                 initA -= FALL_BACK
                 print(wayPoint_list_orig)
-            if (initB in wayPoint_list) and abs(initA - initB) < 40:
+            if (initB in wayPoint_list) and abs(initA - initB) < HIT_RANGE:
                 wpA_list.append(initB)
                 id = wayPoint_list.index(initB)
                 wayPoint_list_orig.pop(id)

@@ -85,7 +85,7 @@ class ResourceManager:
         self.distortion_coefficients = Distortion_coefficients
         
         # # TODO:更新mechine manager
-        self.machineManager = MachineManager(camera_configs)
+        self.machineManager = MachineManager(camera_configs, motor0_home_pos=33)
         # self.machineGood = True
         # self.machineManager = MachineManager(self.motorV2_list, self.cameras_list)
 
@@ -217,15 +217,23 @@ async def v2_post_machine_raise_error(resources: ResourceManager = Depends(get_r
 
 @app.post('/v2/machine/resolve')
 async def v2_post_machine_resolve(resources: ResourceManager = Depends(get_resources)):
-    if resources.machineManager._state == MachineState.ERROR:
-        # await resources.machineManager.set_lamp(r=False, y=True, g=False)
+    async def run_resolve():
         await resources.machineManager.resolve_error()
         # await resources.machineManager.set_lamp(r=False, y=False, g=True)
         resources.machineManager._state = MachineState.IDLE
 
         return {'statue':'ok'}
-    else:
-        return {"not in error"}
+
+    if resources.machineManager._state == MachineState.HOMING:
+        return {"already homing"}
+    await run_resolve()
+    return {'statue':'ok'}
+    
+    if resources.machineManager._state == MachineState.ERROR:
+        await run_resolve()
+        return {'statue':'ok'}
+    
+    return {"not in error"} # 最後，在home 又沒error
 
 @app.get('/v2/motor/{id}/data')
 def v2_get_motor_data(id:int, resources: ResourceManager = Depends(get_resources)):
@@ -675,8 +683,9 @@ def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
     # ]}
     
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    result_folder = f"/home/ubuntu/Desktop/resultsFromReisender/{timestamp}"
+    result_folder = f"/home/ubuntu/MARK2_reisenderBackend/resultsFromReisender/{timestamp}"
     os.makedirs(result_folder, exist_ok=True)
+    
     
     # Save images
     img_paths = os.listdir('motorImage')
@@ -687,19 +696,23 @@ def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
         
         logger.debug('result upload')
 
-    files = getPostFiles()
-    response = requests.post(
-        "http://localhost:5001/img_predict",
-        headers={
-            "accept": "application/json"
-        },
-        files=files,
-        timeout=10
-    )
+    files = getPostFiles_v2()
+    try:
+        response = requests.post(
+            "http://localhost:5001/img_predict",
+            headers={
+                "accept": "application/json"
+            },
+            files=files,
+            timeout=10
+        )
+    except Exception as e:
+        raise HTTPException(404, "上傳點遺失")
+    
     result=dict()
     if response.status_code == 200:
         logger.info("上傳成功")
-        return response
+        return response.json()
     else:
         raise HTTPException(400, "上傳失敗")
 
