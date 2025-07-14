@@ -221,7 +221,7 @@ class DualMotorPathOptimizer:
         # wayPoint_list_orig = [wayPoint_list_orig[i] for i in range(len(wayPoint_list_orig)) if i == 0 or wayPoint_list_orig[i] - wayPoint_list_orig[i-1] > 15]
         wayPoint_list = [floor(x) for x in wayPoint_list_orig]
 
-        print("valid wayPoints: ", wayPoint_list)
+        # print("valid wayPoints: ", wayPoint_list)
         t = 0
         for i in range(360):
             if (initA in wayPoint_list) and abs(initA - initB) < HIT_RANGE:
@@ -230,28 +230,28 @@ class DualMotorPathOptimizer:
                 wayPoint_list_orig.pop(id)
                 wayPoint_list.pop(id)
                 initA -= FALL_BACK
-                print(wayPoint_list_orig)
+                # print(wayPoint_list_orig)
             if (initB in wayPoint_list) and abs(initA - initB) < HIT_RANGE:
                 wpA_list.append(initB)
                 id = wayPoint_list.index(initB)
                 wayPoint_list_orig.pop(id)
                 wayPoint_list.pop(id)
                 initA -= FALL_BACK
-                print(wayPoint_list_orig)
+                # print(wayPoint_list_orig)
             if initA in wayPoint_list:
                 wpA_list.append(initA)
                 id = wayPoint_list.index(initA)
                 wayPoint_list_orig.pop(id)
                 wayPoint_list.pop(id)
                 initA -= FALL_BACK
-                print(wayPoint_list_orig)
+                # print(wayPoint_list_orig)
             if initB in wayPoint_list:
                 wpB_list.append(initB)
                 id = wayPoint_list.index(initB)
                 wayPoint_list.pop(id)
                 wayPoint_list_orig.pop(id)
                 initB += FALL_BACK
-                print(wayPoint_list_orig)
+                # print(wayPoint_list_orig)
 
 
             # print(initA, initB, sep='\t')

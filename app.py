@@ -133,8 +133,8 @@ async def lifespan(app: FastAPI):
             ]
         else:
             camera_configs = [
-                {"dev": "/dev/video0", "name": "cam1"},
-                {"dev": "/dev/video2", "name": "cam0"}
+                {"dev": "/dev/video0", "name": "cam0"},
+                {"dev": "/dev/video2", "name": "cam1"}
             ]
 
         resources = ResourceManager('/dev/ttyUSB3', camera_configs)
@@ -598,7 +598,7 @@ async def v2_cam_shot(spReq: MotorSetPointReq,
                 json.dump(spDict, f)
             logger.info(f"Saved SPconfig.json: {spDict}")
             
-        # await resources.machineManager.set_lamp(r=False, g=True, y=False)
+        await resources.machineManager.set_lamp(r=False, g=True, y=False)
         return JSONResponse(content=image_results)
         
     except Exception as e:
@@ -699,7 +699,7 @@ def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
     files = getPostFiles_v2()
     try:
         response = requests.post(
-            "http://localhost:5001/img_predict",
+            "http://localhost:5001/img_seg_predict",
             headers={
                 "accept": "application/json"
             },
