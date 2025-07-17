@@ -109,8 +109,10 @@ async def lifespan(app: FastAPI):
         else:
             
             camera_configs = [
-                {"dev": "/dev/video0", "name": "cam0"},
-                {"dev": "/dev/video1", "name": "cam1"}
+                # {"dev": "/dev/video0", "name": "cam0"},
+                # {"dev": "/dev/video2", "name": "cam1"}
+                {"dev": "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1.1:1.0-video-index0", "name": "cam0"},
+                {"dev": "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1.3:1.0-video-index0", "name": "cam1"}
             ]
 
         resources = ResourceManager('/dev/ttyUSB3', camera_configs)
