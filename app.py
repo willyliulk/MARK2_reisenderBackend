@@ -19,7 +19,7 @@ from enum import Enum
 from typing import List, Optional, Dict
 from contextlib import asynccontextmanager
 
-from utils import get_min_len_path, DualMotorPathOptimizer, spDict_to_pathList
+from utils import get_min_len_path, DualMotorPathOptimizer, spDict_to_pathList, VideoCaptureProcess
 from motorManager import MotorManager, MotorManager_v2
 from machineManager import MachineManager, MachineState
 
@@ -51,31 +51,6 @@ class MotorMoveIncReq(BaseModel):
 class ResourceManager:
     def __init__(self, motor_port: str, camera_configs: List[dict]):
         self.motor:MotorManager = None
-        # self.motor:MotorManager = MotorManager(motor_port)
-        # self.motorV2_list = [
-        #     MotorManager_v2(0, 35),
-        #     MotorManager_v2(1, 360-35)
-        # ]
-        # self.dataStop = False
-        # self.cameras_list = {}
-        # self.locks = {}
-        
-        # # 初始化攝影機並設定參數
-        # for cfg in camera_configs:
-        #     # cap = cv2.VideoCapture(cfg["dev"], cv2.CAP_V4L2)
-        #     cap = cv2.VideoCapture(cfg["dev"])
-        #     # 設定參數...
-        #     cap.set(cv2.CAP_PROP_BUFFERSIZE     , 1)
-        #     cap.set(cv2.CAP_PROP_FPS            , 30)
-        #     cap.set(cv2.CAP_PROP_FRAME_WIDTH    , 640)
-        #     cap.set(cv2.CAP_PROP_FRAME_HEIGHT   , 480)
-        #     cap.set(cv2.CAP_PROP_AUTO_EXPOSURE  , 1)
-        #     cap.set(cv2.CAP_PROP_EXPOSURE       , int(300))
-        #     if not cap.isOpened():
-        #         logger.error(f"Camera {cfg['name']} open failed")
-        #         continue
-        #     self.cameras_list[cfg["name"]] = cap
-        #     self.locks[cfg["name"]] = asyncio.Lock()
         
         with open('camData.json', 'r') as f:
             cam_data = json.load(f)
@@ -85,7 +60,7 @@ class ResourceManager:
         self.distortion_coefficients = Distortion_coefficients
         
         # # TODO:更新mechine manager
-        self.machineManager = MachineManager(camera_configs, motor0_home_pos=33)
+        self.machineManager = MachineManager(camera_configs, motor0_home_pos=33, motor1_home_pos=327)
         # self.machineGood = True
         # self.machineManager = MachineManager(self.motorV2_list, self.cameras_list)
 
@@ -132,9 +107,10 @@ async def lifespan(app: FastAPI):
                 {"dev": "./testRes/SampleVideo_720x480_5mb.mp4", "name": "cam1"}
             ]
         else:
+            
             camera_configs = [
                 {"dev": "/dev/video0", "name": "cam0"},
-                {"dev": "/dev/video2", "name": "cam1"}
+                {"dev": "/dev/video1", "name": "cam1"}
             ]
 
         resources = ResourceManager('/dev/ttyUSB3', camera_configs)
@@ -142,13 +118,16 @@ async def lifespan(app: FastAPI):
         await resources.initialize()
         app.state.resources = resources
         logger.info("All resources initialized")
-        for i in range(5):
-            # await resources.machineManager.set_lamp(r=False, y=False, g=False)
-            await asyncio.sleep(0.2)
-            # await resources.machineManager.set_lamp(r=False, y=False, g=True)
-            await asyncio.sleep(0.2)
+        # for i in range(5):
+        #     # await resources.machineManager.set_lamp(r=False, y=False, g=False)
+        #     await asyncio.sleep(0.2)
+        #     # await resources.machineManager.set_lamp(r=False, y=False, g=True)
+        #     await asyncio.sleep(0.2)
 
         yield
+        
+        logger.info("stopping server")
+        logger.info("cleanup sequence")
         
     finally:
         await app.state.resources.cleanup()
@@ -291,16 +270,17 @@ async def v2_ws_cam(websocket:WebSocket ,id:int):
     resources :ResourceManager = websocket.app.state.resources
 
     try:
+        cap = resources.machineManager.camera_list[f"cam{id}"]
         while True:
-            cap:cv2.VideoCapture = resources.machineManager.camera_list[f"cam{id}"]
+            # cap:cv2.VideoCapture = resources.machineManager.camera_list[f"cam{id}"]
             ret, frame = cap.read()
             if not ret:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                # cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 continue
-            ret, buffer = cv2.imencode('.jpg', frame)
+            ret, frame = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
             if not ret:
                 continue
-            jpegb64 = base64.b64encode(buffer).decode('utf-8')
+            jpegb64 = base64.b64encode(frame).decode('utf-8')
             await websocket.send_text(jpegb64)
             await asyncio.sleep(0.01)
     except WebSocketDisconnect:
@@ -582,7 +562,9 @@ async def v2_cam_shot(spReq: MotorSetPointReq,
         os.makedirs(save_dir, exist_ok=True)
         
         pathList, spDict = spDict_to_pathList(spReq.model_dump())
-        optimizer = DualMotorPathOptimizer()
+        optimizer = DualMotorPathOptimizer(
+            motor1_home=resources.machineManager.motor0_home_pos,
+            motor2_home=resources.machineManager.motor1_home_pos)
         (path1, path2), total_time = optimizer.optimize_paths(pathList)
         spDict['pos_list_multiMotor'] = {
             "motor0":path1,

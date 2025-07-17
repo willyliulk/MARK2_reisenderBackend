@@ -13,7 +13,7 @@ import cv2
 from loguru import logger
 import pynng
 
-from utils import DualMotorPathOptimizer, spDict_to_pathList
+from utils import DualMotorPathOptimizer, spDict_to_pathList, VideoCaptureProcess
 
 class MachineState(Enum):
     IDLE = 0
@@ -80,7 +80,8 @@ class MachineManager:
         self._lamp_state = LampState(g=True)  # 默認綠燈亮
         
         # 攝像頭
-        self.camera_list: Dict[str, cv2.VideoCapture] = {}
+        # self.camera_list: Dict[str, cv2.VideoCapture] = {}
+        self.camera_list: Dict[str, VideoCaptureProcess] = {}
         self.camera_locks: Dict[str, asyncio.Lock] = {}
         
         # 按鈕狀態 (供前端查詢)
@@ -102,19 +103,12 @@ class MachineManager:
     def _init_camera(self, config: dict):
         """初始化攝像頭並設定參數"""
         try:
-            cap = cv2.VideoCapture(config["dev"])
-            if not cap.isOpened():
-                logger.error(f"無法打開攝像頭 {config['name']}")
-                return
-            
-            # 設置攝像頭參數
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            cap.set(cv2.CAP_PROP_FPS, 30)
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            #cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
-            cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) # manual mode
-            cap.set(cv2.CAP_PROP_EXPOSURE, 150)
+            # cap = cv2.VideoCapture(config["dev"])
+            cap = VideoCaptureProcess(config["dev"])
+            # if not cap.isOpened():
+            #     logger.error(f"無法打開攝像頭 {config['name']}")
+            #     return
+            cap.start()
 
             # 存儲攝像頭和對應的鎖
             self.camera_list[config["name"]] = cap
@@ -174,7 +168,8 @@ class MachineManager:
         
         # 釋放攝像頭資源
         for name, cap in self.camera_list.items():
-            cap.release()
+            # cap.release()
+            cap.stop()
             logger.info(f"攝像頭 {name} 已釋放")
         
         logger.info("MachineManager已停止")
@@ -253,8 +248,9 @@ class MachineManager:
                 
                 # 檢查攝像頭錯誤
                 for name, cap in self.camera_list.items():
-                    if not cap.isOpened():
-                        await self._handle_error(f"攝像頭 {name} 連接丟失")
+                    pass
+                    # if not cap.isOpened():
+                    #     await self._handle_error(f"攝像頭 {name} 連接丟失")
                 
                 # 檢查緊急按鈕
                 if self.buttons.emg:
@@ -353,6 +349,13 @@ class MachineManager:
     async def resolve_error(self):
         """解除錯誤狀態"""
         # if self._state == MachineState.ERROR:
+        if self._state == MachineState.HOMING:
+            logger.info("已在HOMING")
+            return False
+        if self._state == MachineState.WORKING:
+            logger.info("正在執行中，防止resolve誤觸發")
+            return False
+        
         logger.info("解除錯誤狀態")
         self._state = MachineState.HOMING
         
@@ -415,12 +418,17 @@ class MachineManager:
         cap = self.camera_list[camera_name]
         lock = self.camera_locks[camera_name]
         
+        print("wait lock")
         async with lock:
-            if not cap.isOpened():
-                logger.error(f"攝像頭 {camera_name} 未打開")
-                return None
+            # if not cap.isOpened():
+            #     logger.error(f"攝像頭 {camera_name} 未打開")
+            #     return None
+            print("start shot")
             for i in range(5):
                 ret, frame = cap.read()
+                if ret:
+                    break
+            print("end shot")
             if not ret:
                 logger.error(f"從攝像頭 {camera_name} 讀取圖像失敗")
                 return None

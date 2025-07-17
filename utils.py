@@ -1,5 +1,11 @@
 from itertools import permutations
 from math import floor
+import cv2
+import multiprocessing as mp
+import numpy as np
+import time
+from collections import deque
+
 def get_min_len_path(spList, startPoint):
     def get_pathLen(spList, path):
         pathLen = 0
@@ -206,7 +212,7 @@ class DualMotorPathOptimizer:
         
         return best_allocation, best_time
 
-    def plan_2(self, targets):
+    def plan_2(self, targets, initA=30, initB=330):
         initA = 30
         initB = 360-30
         FALL_BACK = 15
@@ -216,7 +222,7 @@ class DualMotorPathOptimizer:
         wpB_list = []
         wayPoint_list_orig = targets
         wayPoint_list_orig.sort()
-        wayPoint_list_orig = [x for x in wayPoint_list_orig if x > initA and x < initB]
+        wayPoint_list_orig = [x for x in wayPoint_list_orig if x >= initA and x <= initB]
         # 去除掉waypoint list orig中相鄰兩點過近的其中的後面的點
         # wayPoint_list_orig = [wayPoint_list_orig[i] for i in range(len(wayPoint_list_orig)) if i == 0 or wayPoint_list_orig[i] - wayPoint_list_orig[i-1] > 15]
         wayPoint_list = [floor(x) for x in wayPoint_list_orig]
@@ -270,7 +276,7 @@ class DualMotorPathOptimizer:
         優化路徑分配
         """
         # return self.plan_1(targets)
-        return self.plan_2(targets)
+        return self.plan_2(targets, self.motor1_home, self.motor2_home)
 
 
 def spDict_to_pathList(spDict:dict):
@@ -282,9 +288,140 @@ def spDict_to_pathList(spDict:dict):
     return pathList, spDict
 
 
+# ===========================================
+# video multi process
+# ===========================================
+def video_capture_process(src, frame_deque, stop_event, deque_lock, maxlen, block_event, sleep_time):
+    """
+    在獨立進程中讀取影片幀
+    src: 攝影機來源
+    frame_deque: 用於傳遞幀的共享列表
+    stop_event: 用於通知進程停止的事件
+    deque_lock: 用於同步訪問列表的鎖
+    maxlen: 最大幀數
+    """
+    cap = cv2.VideoCapture(src)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+    # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1024)
+    #cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) # manual mode
+    cap.set(cv2.CAP_PROP_EXPOSURE, 150)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+    
+    sleep_time = time.time()
+
+    if not cap.isOpened():
+        print("錯誤：無法打開攝影機", src)
+        return
+        
+    while not stop_event.is_set():
+        if time.time() - sleep_time > 5:
+            sleep_time = time.time()
+            block_event.clear()
+        
+        block_event.wait()
+        
+        ret, frame = cap.read()
+            
+        if not ret:
+            print("錯誤：無法讀取幀")
+            break
+            
+        # 使用鎖來安全地操作共享列表
+        with deque_lock:
+            # 如果列表已滿，移除最舊的幀
+            if len(frame_deque) >= maxlen:
+                frame_deque.pop(0)  # 移除最舊的幀
+            frame_deque.append(frame)
+            
+    cap.release()
+    print("影片擷取進程已結束")
+
+class VideoCaptureProcess:
+    def __init__(self, src="/dev/video1", maxlen=2):
+        # 創建進程管理器
+        self.manager = mp.Manager()
+        # 用於儲存幀的共享列表
+        self.frame_deque = self.manager.list()
+        self.maxlen = maxlen
+        # 用於同步訪問列表的鎖
+        self.deque_lock = mp.Lock()
+        # 用於控制進程停止的事件
+        self.stop_event = mp.Event()
+        # 攝影機來源
+        self.src = src
+        # 進程物件
+        self.process = None
+        self.block_event = mp.Event()
+        self.sleep_time = 0
+        
+    def start(self):
+        """啟動影片擷取進程"""
+        self.stop_event.clear()
+        self.process = mp.Process(
+            target=video_capture_process,
+            args=(self.src, self.frame_deque, self.stop_event, self.deque_lock, self.maxlen, self.block_event, self.sleep_time)
+        )
+        self.process.daemon = True
+        self.process.start()
+        
+    def read(self):
+        """從共享列表中獲取最新的幀"""
+        with self.deque_lock:
+            self.block_event.set()
+            self.sleep_time = time.time()
+            if len(self.frame_deque) > 0:
+                # 獲取最新的幀（最後一個元素）
+                return True, self.frame_deque[-1]
+            return False, None
+            
+    def stop(self):
+        """停止影片擷取進程"""
+        self.stop_event.set()
+        if self.process is not None:
+            self.process.join(timeout=2)
+            if self.process.is_alive():
+                self.process.terminate()
+            self.process.join(timeout=2)
+            if self.process.is_alive():
+                self.process.kill()
+        # 清空列表
+        with self.deque_lock:
+            self.frame_deque[:] = []  # 清空共享列表
+        self.manager.shutdown()
+
+
+
 
 if __name__ == "__main__":
-    testData =  [90, 110, 150, 180, 200, 230]
-    optimizer = DualMotorPathOptimizer()
-    result = optimizer.optimize_paths(testData)
-    print(result)
+    # testData =  [30, 90, 110, 150, 180, 200, 230, 330]
+    # optimizer = DualMotorPathOptimizer()
+    # result = optimizer.optimize_paths(testData)
+    # print(result)
+    
+    cap_process = VideoCaptureProcess(src="/dev/video1", maxlen=2)
+    cap_process.start()
+    
+    try:
+        while True:
+            # 從進程中獲取幀
+            ret, frame = cap_process.read()
+            if ret:
+                # 在這裡處理幀，例如顯示
+                cv2.imshow('Frame', frame)
+                
+            # 按 'q' 退出
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+                
+            # 稍微延遲以避免過度使用 CPU
+            time.sleep(0.01)
+            
+    finally:
+        # 清理資源
+        cap_process.stop()
+        cv2.destroyAllWindows()
