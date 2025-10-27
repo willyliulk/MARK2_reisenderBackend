@@ -5,3 +5,4 @@ motorImage/
 .vscode/settings.json
 log/
 resultsFromReisender/
+mqttBroker/
