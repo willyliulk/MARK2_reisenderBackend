@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>路徑已廢棄通知</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            text-align: center;
+            padding: 50px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #d9534f; /* 警告紅色 */
+            font-size: 28px;
+            margin-bottom: 20px;
+        }
+        p {
+            font-size: 18px;
+            line-height: 1.6;
+            margin-bottom: 25px;
+        }
+        .callout {
+            background-color: #f0ad4e; /* 橙色強調 */
+            color: #fff;
+            padding: 15px;
+            border-radius: 4px;
+            font-weight: bold;
+            display: inline-block;
+        }
+        a {
+            color: #337ab7;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚠️ 警告：此 API 路徑已廢棄 (Deprecated)</h1>
+        <p>您目前存取的 API 路徑已停止維護，並將在未來的版本中移除。</p>
+        
+        <div class="callout">
+            請立即更新您的應用程式，改為使用 **v2 系列 API**。
+        </div>
+
+        <p>
+            
+            請參閱我們的最新 <a href="/docs">API 文件</a> 以取得詳細資訊。
+        </p>
+
+        <p style="font-size: 14px; color: #777;">
+            如果您有任何疑問，請聯繫我們的技術支援團隊。
+        </p>
+    </div>
+</body>
+</html>

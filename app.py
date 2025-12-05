@@ -109,10 +109,10 @@ async def lifespan(app: FastAPI):
         else:
             
             camera_configs = [
-                # {"dev": "/dev/video0", "name": "cam0"},
-                # {"dev": "/dev/video2", "name": "cam1"}
-                {"dev": "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1.1:1.0-video-index0", "name": "cam0"},
-                {"dev": "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1.3:1.0-video-index0", "name": "cam1"}
+                {"dev": "/dev/video0", "name": "cam1"},
+                {"dev": "/dev/video2", "name": "cam0"}
+                # {"dev": "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1.1:1.0-video-index0", "name": "cam0"},
+                # {"dev": "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1.3:1.0-video-index0", "name": "cam1"}
             ]
 
         resources = ResourceManager('/dev/ttyUSB3', camera_configs)
@@ -224,7 +224,7 @@ def v2_get_motor_data(id:int, resources: ResourceManager = Depends(get_resources
     spd = resources.machineManager.motor_data[id].spd
     state = resources.machineManager.motor_data[id].state
     proximity = resources.machineManager.limitSwitchs[id]
-    is_home = resources.machineManager.motor_is_home()
+    is_home = resources.machineManager.motor_is_home(id)
 
     motorDataJson =  {
         'id':id,
@@ -250,7 +250,10 @@ async def v2_ws_motor_data(websocket:WebSocket ,id:int):
             pos = resources.machineManager.motor_data[id].pos
             spd = resources.machineManager.motor_data[id].spd
             state = resources.machineManager.motor_data[id].state
-            proximity = resources.machineManager.limitSwitchs[id]
+            if resources.machineManager.get_state_data()['state'] == 'HOMING':
+                proximity = False
+            else:
+                proximity = resources.machineManager.limitSwitchs[id]
             is_home = resources.machineManager.motor_is_home()
 
             motorDataJson =  {
@@ -712,7 +715,7 @@ def v2_result_upload(resources: ResourceManager = Depends(get_resources)):
 
 @app.get("/", deprecated=True)
 def get_root():
-    return FileResponse(path="html/index.html")
+    return FileResponse(path="html/deprecated_notice.html")
 
 @app.get("/motor/data", deprecated=True)
 async def get_motor_data(resources: ResourceManager = Depends(get_resources)):
@@ -1088,5 +1091,5 @@ if __name__ == "__main__":
     logger.add("log/app.log", level="INFO", rotation="10 MB", compression="zip")
     logger.configure(handlers=[{"sink": sys.stderr, "level": "INFO"}])
     print('hello')
-    uvicorn.run(app='app:app', host="0.0.0.0", port=8800, reload=False)
+    uvicorn.run(app='app:app', host="0.0.0.0", port=9999, reload=False)
 

@@ -218,7 +218,7 @@ class MachineManager:
             btn_list = data["btn"]
             # 按鈕腳位 (緊急, 拍攝, 紅、綠、藍)
             if len(btn_list) >= 4:
-                self.buttons.emg = bool(btn_list[0])
+                self.buttons.emg = not bool(btn_list[0])
                 self.buttons.shot = bool(btn_list[1])
                 self.buttons.home = bool(btn_list[2])
                 self.buttons.resolve = bool(btn_list[3])
@@ -228,7 +228,7 @@ class MachineManager:
         if "lim" in data and isinstance(data["lim"], list):
             lim_list = data["lim"]
             if len(lim_list) >= 2:
-                self.limitSwitchs = [sw==1 for sw in lim_list ]
+                self.limitSwitchs = [sw==0 for sw in lim_list ]
                 if any(self.limitSwitchs) and self._state != MachineState.HOMING:
                     await self._handle_error("限位開關觸發")
                     
@@ -245,6 +245,10 @@ class MachineManager:
                 for i, motor in enumerate(self.motor_data):
                     if motor.state == "ERROR":
                         await self._handle_error(f"馬達 {i} 錯誤")
+                    
+                #TODO: 修正這裡
+                if abs(self.motor_data[0].pos - self.motor_data[1].pos) < 25:
+                    await self._handle_error("馬達過近")
                 
                 # 檢查攝像頭錯誤
                 for name, cap in self.camera_list.items():
@@ -257,8 +261,8 @@ class MachineManager:
                     await self._handle_error("緊急停止按鈕已按下")
                 
                 # 檢查解除錯誤
-                if self.buttons.resolve and self._state == MachineState.ERROR:
-                    await self.resolve_error()
+                # if self.buttons.resolve and self._state == MachineState.ERROR:
+                #     await self.resolve_error()
                 
                 await asyncio.sleep(0.2)  # 定期檢查
             
@@ -527,7 +531,7 @@ class MachineManager:
         
         return True
     
-    def motor_is_home(self, motor_id=0):
+    def motor_is_home(self, motor_id:int):
         if motor_id<0 or motor_id>1:
             raise Exception(f"motor_is_home: invalid motor_id: {motor_id}")
 
@@ -604,7 +608,7 @@ class MachineManager:
         self._state = MachineState.ERROR
         await asyncio.sleep(0.01)
         self._emergency = True
-        self._error_reason = "緊急停止觸發"
+        self._error_reason = "緊急停止由API觸發"
         
         # 設置紅燈
         # await self.set_lamp(r=True, y=False, g=False)

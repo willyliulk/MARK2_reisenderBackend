@@ -33,20 +33,21 @@
 # fi
 
 
-# curl -LsSf https://astral.sh/uv/install.sh | sh
+#curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# uv sync
+#uv sync
 
-cp mark2-app.service /etc/systemd/system/
-cp mark2-pico-bridge.service /etc/systemd/system/
+sudo cp mark2-app.service /etc/systemd/system/
+sudo cp mark2-pico-bridge.service /etc/systemd/system/
 
-systemctl daemon-reload
-systemctl start mark2-app.service
-systemctl enable mark2-app.service
-systemctl start mark2-pico-bridge.service
-systemctl enable mark2-pico-bridge.service
+sudo systemctl daemon-reload
+sudo systemctl start mark2-app.service
+sudo systemctl enable mark2-app.service
+sudo systemctl start mark2-pico-bridge.service
+sudo systemctl enable mark2-pico-bridge.service
 
-cp mark2-services /etc/logrotate.d/
+sudo cp mark2-services /etc/logrotate.d/
 sudo logrotate -f /etc/logrotate.d/mark2-services
+sudo usermod -a -G dialout ubuntu
 
 echo "Script completed successfully."
